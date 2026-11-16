@@ -6,7 +6,7 @@ id: T-001
 
 # T-001 会话导出为 PDF 的宿主路由与 PDF 视图页
 
-状态: active
+状态: completed
 类型: 新功能
 风险等级: major
 风险面: 对外接口（新增 `/api/session.pdf` 路由与状态码）、鉴权（路由承载会话内容导出）
@@ -74,4 +74,12 @@ id: T-001
 
 ## 终态与证据
 
-关闭时填写实现、测试、SOLUTION 对照、commit 与独立 review 证据。
+- 实现: 宿主半区 `src/host.mjs` 在鉴权内注册 `GET/HEAD /api/session.pdf`，经 sessionQuery 读快照、拒绝子会话、折叠真人消息/助手回复/工具调用、字体探测、Chrome 打印与 LRU + single-flight；浏览器半区 `src/client.mjs` 注册 `conversation.view` 的 PDF 页，HEAD 触发、原生 iframe 预览、GET 下载同一份字节；`.dsh-plugin/` 为可装载产物。
+- 测试: `pnpm test` 47 通过（transcript/render/config/naming/exporter/route、真实 Chrome 的 A4+中文+分页、假浏览器超时/坏产物、view-state、host）；`pnpm test:e2e` 两套通过（成功链路、401/403、404/500/503、日志字节不变）；`pnpm check` 通过；AgentMap lint 在 T-002 复位后通过。
+- SOLUTION 对照: R-01-001..008 与 23 条 AC 全部有实现与测试锚点；空态按 C-003、会话归属按 C-004；GET/HEAD 契约、`x-dsh-export-error` 错误码、sessionId ASCII 字符集、browserPath 请求期 503、零运行时依赖、不落盘与只读日志均与 SOLUTION 一致；无未承接差距。
+- commit: 7074ef7
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Spec 34be88e1 / Standards c3c32c18）
+  - 目的理解: 交付可装载的 DSH Web PDF 视图页与鉴权内导出路由，兑现 8 条需求/23 条 AC，并保持零运行时依赖、不落盘、只读日志与宿主鉴权边界。
+  - 问题与修复: 首轮 2 条 blocking（工具参数换行破坏单行摘要；SOLUTION 子会话“读取前拒绝”与实现不符）已修；4 条 non-blocking（README browserPath 时机、会话归属承诺、405 契约、非 ASCII sessionId 构造响应头崩溃）已修。复审 Standards 追加 1 条 blocking（405 契约在宿主只转发 GET/HEAD 时不可观测），已在 7074ef7 撤回契约并补 sessionId 字符集，Spec 轴与 Standards 轴随后均通过。
+  - 复审结论: 双轴复审通过；残余风险：AC-03 的宿主级 UI 可见性由 C-003 限定、缓存无字节上限、HEAD 成功后 iframe GET 失败无页内回落、e2e 生成中断言有低概率竞态，均不阻断关闭。

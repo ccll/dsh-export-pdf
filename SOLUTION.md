@@ -45,7 +45,7 @@ owner: agent 主笔，项目属主审批
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
 | 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
-| 现状差距已有 task 承接 | 通过 | T-001 承接全部需求（active） |
+| 现状差距已有 task 承接 | 通过 | T-001 已交付全部需求（completed）；累计审计 T-002 已复位 |
 | 可派生验证 | 通过 | SOLUTION.md#产品契约 |
 
 ## 静态架构
