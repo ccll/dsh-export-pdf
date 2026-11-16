@@ -1,4 +1,4 @@
-import { foldTranscript } from './transcript.mjs'
+import { foldTranscript, normalizeInclude } from './transcript.mjs'
 import { renderTranscriptHtml } from './render.mjs'
 import { FontUnavailableError, SessionUnavailableError, SubagentExportError } from './errors.mjs'
 
@@ -37,33 +37,36 @@ export function createExporter(dependencies) {
   const limiter = createLimiter(maxConcurrentRenders)
 
   /**
-   * 导出一个会话。命中缓存直接返回；同会话并发请求合并到一次渲染；
-   * 日志长度变化后重读并重新渲染。
+   * 导出一个会话。命中缓存直接返回；同会话同选择并发请求合并到一次渲染；
+   * 日志长度变化后重读并重新渲染。不同选择使用不同的缓存与单飞键。
    * @param {string} sessionId 会话标识
+   * @param {readonly string[]} [include] 导出内容选择
    * @returns {Promise<{ kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' }>}
    */
-  async function exportSession(sessionId) {
+  async function exportSession(sessionId, include = []) {
+    const selected = normalizeInclude(include)
+    const key = cacheKey(sessionId, selected)
     for (;;) {
       const snapshot = await readSnapshot(sessionId)
       const length = snapshot.events.length
-      const cached = readCache(sessionId)
+      const cached = readCache(key)
       if (cached !== undefined && cached.length === length) return cached.result
 
-      const pending = inFlight.get(sessionId)
+      const pending = inFlight.get(key)
       if (pending !== undefined) {
-        // 同一会话同一时刻只有一个渲染任务；等待者复用结果后重新核对日志长度。
+        // 同一会话同一选择同一时刻只有一个渲染任务；等待者复用结果后重新核对日志长度。
         await pending
         continue
       }
 
-      const task = renderSnapshot(sessionId, snapshot)
-      inFlight.set(sessionId, task)
+      const task = renderSnapshot(sessionId, snapshot, selected)
+      inFlight.set(key, task)
       try {
         const result = await task
-        writeCache(sessionId, { length, result })
+        writeCache(key, { length, result })
         return result
       } finally {
-        inFlight.delete(sessionId)
+        inFlight.delete(key)
       }
     }
   }
@@ -87,8 +90,8 @@ export function createExporter(dependencies) {
     return snapshot
   }
 
-  async function renderSnapshot(sessionId, snapshot) {
-    const entries = foldTranscript(snapshot.events)
+  async function renderSnapshot(sessionId, snapshot, include) {
+    const entries = foldTranscript(snapshot.events, { include })
     if (entries.length === 0) return { kind: 'empty' }
     if (!(await hasCjkFont())) throw new FontUnavailableError()
     const html = renderTranscriptHtml(entries)
@@ -101,18 +104,18 @@ export function createExporter(dependencies) {
     }
   }
 
-  function readCache(sessionId) {
-    const entry = cache.get(sessionId)
+  function readCache(key) {
+    const entry = cache.get(key)
     if (entry === undefined) return undefined
     // 触碰即更新 LRU 顺序。
-    cache.delete(sessionId)
-    cache.set(sessionId, entry)
+    cache.delete(key)
+    cache.set(key, entry)
     return entry
   }
 
-  function writeCache(sessionId, entry) {
-    cache.delete(sessionId)
-    cache.set(sessionId, entry)
+  function writeCache(key, entry) {
+    cache.delete(key)
+    cache.set(key, entry)
     while (cache.size > cacheMaxEntries) {
       const oldest = cache.keys().next().value
       if (oldest === undefined) break
@@ -121,6 +124,16 @@ export function createExporter(dependencies) {
   }
 
   return { exportSession }
+}
+
+/**
+ * 缓存与单飞键：会话标识与归一选择的组合。选择为空时保留旧格式的
+ * `sessionId\u0000` 前缀，避免与只靠会话标识的旧缓存混淆。
+ * @param {string} sessionId 会话标识
+ * @param {readonly string[]} include 归一后的选择
+ */
+function cacheKey(sessionId, include) {
+  return `${sessionId}\u0000${include.join(',')}`
 }
 
 /**

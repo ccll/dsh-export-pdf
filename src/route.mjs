@@ -7,6 +7,7 @@ import {
   SubagentExportError,
 } from './errors.mjs'
 import { pdfFilename } from './naming.mjs'
+import { INCLUDE_TOKENS, normalizeInclude } from './transcript.mjs'
 
 /** 导出路由在 Connection `/api` 通道下的绝对路径。 */
 export const SESSION_PDF_PATH = '/api/session.pdf'
@@ -39,10 +40,14 @@ export async function handlePdfRequest(request, exporter, options = {}) {
   if (disposition !== 'inline' && disposition !== 'attachment') {
     return textResponse(400, 'disposition 只能是 inline 或 attachment', method, { code: 'request' })
   }
+  const include = parseInclude(url.searchParams.getAll('include'))
+  if (include === null) {
+    return textResponse(400, 'include 只能包含 tools 与 attachments，且不得重复', method, { code: 'request' })
+  }
 
   let result
   try {
-    result = await exporter.exportSession(sessionId)
+    result = await exporter.exportSession(sessionId, include)
   } catch (error) {
     if (!(error instanceof PdfExportError)) logError(`会话 ${sessionId} 导出时出现未分类错误`, error)
     return errorResponse(error, method)
@@ -51,12 +56,30 @@ export async function handlePdfRequest(request, exporter, options = {}) {
   if (result.kind === 'empty') return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } })
   const headers = {
     'content-type': 'application/pdf',
-    'content-disposition': `${disposition}; filename="${pdfFilename(sessionId)}"`,
+    'content-disposition': `${disposition}; filename="${pdfFilename(sessionId, include)}"`,
     'content-length': String(result.bytes.byteLength),
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
   }
   return new Response(method === 'HEAD' ? null : result.bytes, { status: 200, headers })
+}
+
+/**
+ * 解析 include 查询参数：缺省或空值为 []；只接受合法 token，重复或未知值
+ * 返回 null 由调用方转成 400。顺序按固定 token 顺序归一，便于缓存键稳定。
+ * @param {string[]} values 同名的全部 include 参数值
+ * @returns {string[] | null}
+ */
+function parseInclude(values) {
+  if (values.length === 0) return []
+  if (values.length > 1) return null
+  const raw = values[0]
+  if (raw === '') return []
+  const tokens = raw.split(',')
+  if (tokens.length === 0) return null
+  if (tokens.some((token) => !INCLUDE_TOKENS.includes(token))) return null
+  if (new Set(tokens).size !== tokens.length) return null
+  return normalizeInclude(tokens)
 }
 
 function errorResponse(error, method) {

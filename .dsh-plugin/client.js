@@ -9,18 +9,25 @@ window.__ModuleLoader__.load({
  * 导出文件名固定为 `dsh-session-<会话标识前 8 位>.pdf`（SOLUTION#产品契约）。
  * 会话标识常带 `session-` 前缀；去掉该公共前缀后再取前 8 位，否则所有会话
  * 会得到同一个文件名，不满足 R-01-003/AC-01 的“包含会话标识”。
+ * 附加内容选择按固定顺序追加后缀，避免同会话不同选择互相覆盖。
  * @param {string} sessionId 会话标识
+ * @param {readonly string[]} [include] 导出内容选择
  * @returns {string} 下载文件名
  */
-function pdfFilename(sessionId) {
+function pdfFilename(sessionId, include = []) {
   const raw = String(sessionId)
   const identity = raw.startsWith('session-') ? raw.slice('session-'.length) : raw
   const prefix = identity === '' ? raw : identity
-  return `dsh-session-${prefix.slice(0, 8)}.pdf`
+  const selected = Array.isArray(include) ? include : []
+  const tools = selected.includes('tools')
+  const attachments = selected.includes('attachments')
+  const suffix = tools && attachments ? '-tools-attachments' : tools ? '-tools' : attachments ? '-attachments' : ''
+  return `dsh-session-${prefix.slice(0, 8)}${suffix}.pdf`
 }
 
 /** 视图页固定文案。 */
 const EMPTY_TEXT = '该会话还没有消息，暂无可导出的内容。'
+const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容，可勾选工具调用摘要或附件占位后重试。'
 const GENERATING_TEXT = '正在生成 PDF…'
 const READY_TEXT = '预览已就绪'
 const DOWNLOAD_TEXT = '下载 PDF'
@@ -45,14 +52,16 @@ const ERROR_MESSAGES = {
  * 因此按 document.baseURI 解析成部署前缀下的绝对地址；与宿主其他
  * document-relative 路由一致。
  * @param {string} sessionId 会话标识
- * @param {{ base?: string, disposition?: 'inline' | 'attachment' }} [options]
+ * @param {{ base?: string, disposition?: 'inline' | 'attachment', include?: readonly string[] }} [options]
  * @returns {string}
  */
 function pdfRouteUrl(sessionId, options = {}) {
   const base = options.base ?? document.baseURI
   const disposition = options.disposition ?? 'inline'
+  const include = Array.isArray(options.include) ? ['tools', 'attachments'].filter((token) => options.include.includes(token)) : []
+  const includeQuery = include.length === 0 ? '' : `&include=${encodeURIComponent(include.join(','))}`
   return new URL(
-    `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}`,
+    `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}${includeQuery}`,
     base,
   ).href
 }
@@ -72,7 +81,8 @@ function initialViewState(blank) {
  * @returns {string}
  */
 function viewNoticeText(state) {
-  return state.kind === 'empty' ? EMPTY_TEXT : GENERATING_TEXT
+  if (state.kind !== 'empty') return GENERATING_TEXT
+  return typeof state.message === 'string' && state.message !== '' ? state.message : EMPTY_TEXT
 }
 
 /**
@@ -81,11 +91,11 @@ function viewNoticeText(state) {
  * @param {number} status HTTP 状态码
  * @param {string} body 响应正文
  * @param {string | null} [code] `x-dsh-export-error` 响应头
- * @returns {{ kind: 'ready' } | { kind: 'empty' } | { kind: 'error', message: string }}
+ * @returns {{ kind: 'ready' } | { kind: 'empty', message?: string } | { kind: 'error', message: string }}
  */
 function classifyExportResponse(status, body, code) {
   if (status === 200) return { kind: 'ready' }
-  if (status === 204) return { kind: 'empty' }
+  if (status === 204) return { kind: 'empty', message: FILTERED_EMPTY_TEXT }
   return { kind: 'error', message: messageForStatus(status, body, code) }
 }
 
@@ -124,11 +134,14 @@ function messageForStatus(status, body, code) {
 /** 视图页样式；宿主模块系统不提供 CSS 构建，自注入一条 scoped 规则。 */
 const VIEW_STYLE = `
 .dxp-root { box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 420px; padding: 12px 16px 16px; color: var(--dsw-alias-label-primary, #161616); }
-.dxp-head { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.dxp-head { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 12px; justify-content: space-between; position: relative; z-index: 1; }
 .dxp-title { align-items: baseline; display: flex; gap: 8px; min-width: 0; }
 .dxp-title strong { font-size: 14px; font-weight: 600; }
 .dxp-status { color: var(--dsw-alias-label-caption, #6b6b6b); font-size: 12px; }
-.dxp-download { background: var(--dsw-alias-state-business-primary, #2f6fed); border: 0; border-radius: 8px; color: #ffffff; cursor: pointer; font: inherit; font-size: 13px; padding: 7px 14px; white-space: nowrap; }
+.dxp-options { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
+.dxp-check { align-items: center; color: var(--dsw-alias-label-caption, #6b6b6b); display: inline-flex; font-size: 12px; gap: 4px; user-select: none; }
+.dxp-check input { accent-color: var(--dsw-alias-state-business-primary, #2f6fed); margin: 0; }
+.dxp-download { background: var(--dsw-alias-state-business-primary, #2f6fed); border: 0; border-radius: 8px; color: #ffffff; cursor: pointer; font: inherit; font-size: 13px; margin-left: auto; padding: 7px 14px; white-space: nowrap; }
 .dxp-download:hover:not(:disabled) { filter: brightness(0.94); }
 .dxp-download:disabled { cursor: default; opacity: 0.5; }
 .dxp-body { display: flex; flex: 1; flex-direction: column; min-height: 0; }
@@ -142,9 +155,20 @@ const VIEW_STYLE = `
 @keyframes dxp-spin { to { transform: rotate(360deg); } }
 `
 
+/** 新会话与首次挂载的回显选择：默认只导出消息文本。 */
+const DEFAULT_OPTIONS = { attachments: false, tools: false }
+
+function includeFromOptions(options) {
+  const include = []
+  if (options.tools) include.push('tools')
+  if (options.attachments) include.push('attachments')
+  return include
+}
+
 /**
- * PDF 视图页。会话为空时显示空态且不发请求；否则 HEAD 同源路由，
- * 生成中显示等待状态，成功后用浏览器原生查看器预览，下载复用同一份结果。
+ * PDF 视图页。默认请求最简内容；复选框选择变化时取消旧请求并按新选择重取。
+ * 会话为空时显示空态且不发请求；否则 HEAD 同源路由，成功后用浏览器原生
+ * 查看器预览，下载复用同一份结果与同一组选择。
  * @param {any} props conversation.view 的组合 props（含 sessionId 与 useSession）
  */
 function PdfView(props) {
@@ -153,6 +177,10 @@ function PdfView(props) {
   const [state, setState] = React.useState(() => initialViewState(blank))
   const [download, setDownload] = React.useState({ kind: 'idle' })
   const [attempt, setAttempt] = React.useState(0)
+  const [selection, setSelection] = React.useState(() => ({ sessionId, options: DEFAULT_OPTIONS }))
+  const options = selection.sessionId === sessionId ? selection.options : DEFAULT_OPTIONS
+  const include = includeFromOptions(options)
+  const includeKey = include.join(',')
 
   React.useEffect(() => {
     if (blank === true) {
@@ -164,13 +192,13 @@ function PdfView(props) {
     let disposed = false
     setState({ kind: 'loading' })
     setDownload({ kind: 'idle' })
-    const url = pdfRouteUrl(sessionId)
+    const url = pdfRouteUrl(sessionId, { include })
     fetch(url, { method: 'HEAD', credentials: 'same-origin', signal: controller.signal })
       .then(async (response) => {
         const code = response.headers.get('x-dsh-export-error')
         const classified = classifyExportResponse(response.status, response.ok ? '' : await response.text().catch(() => ''), code)
         if (disposed || controller.signal.aborted) return
-        setState(classified.kind === 'ready' ? { kind: 'ready', url, filename: pdfFilename(sessionId) } : classified)
+        setState(classified.kind === 'ready' ? { kind: 'ready', sessionId, url, filename: pdfFilename(sessionId, include), includeKey } : classified)
       })
       .catch(() => {
         if (disposed || controller.signal.aborted) return
@@ -180,15 +208,15 @@ function PdfView(props) {
       disposed = true
       controller.abort()
     }
-  }, [sessionId, blank, attempt])
+  }, [sessionId, blank, attempt, includeKey])
 
   const downloadPdf = React.useCallback(async () => {
-    if (state.kind !== 'ready') return
+    if (state.kind !== 'ready' || state.sessionId !== sessionId || state.includeKey !== includeKey) return
     setDownload({ kind: 'loading' })
     try {
-      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment' }), { credentials: 'same-origin' })
+      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include }), { credentials: 'same-origin' })
       if (response.status === 204) {
-        setDownload({ kind: 'error', message: EMPTY_TEXT })
+        setDownload({ kind: 'error', message: FILTERED_EMPTY_TEXT })
         return
       }
       if (!response.ok) {
@@ -209,12 +237,27 @@ function PdfView(props) {
     } catch {
       setDownload({ kind: 'error', message: NETWORK_ERROR_TEXT })
     }
-  }, [state, sessionId])
+  }, [state, sessionId, includeKey, include])
 
-  const ready = state.kind === 'ready'
-  const statusText =
-    state.kind === 'loading' ? GENERATING_TEXT : state.kind === 'ready' ? READY_TEXT : state.kind === 'empty' ? '' : '导出失败'
-  const buttonText = state.kind !== 'ready' ? DOWNLOAD_TEXT : download.kind === 'loading' ? DOWNLOADING_TEXT : DOWNLOAD_TEXT
+  const ready = state.kind === 'ready' && state.sessionId === sessionId && state.includeKey === includeKey
+  const statusText = state.kind === 'error' ? '导出失败' : state.kind === 'empty' ? '' : ready ? READY_TEXT : GENERATING_TEXT
+  const buttonText = !ready ? DOWNLOAD_TEXT : download.kind === 'loading' ? DOWNLOADING_TEXT : DOWNLOAD_TEXT
+  const displayState = ready || state.kind === 'empty' || state.kind === 'error' ? state : { kind: 'loading' }
+
+  const setOption = (key, checked) => {
+    setSelection({ sessionId, options: { ...options, [key]: checked } })
+  }
+  const option = (key, label) =>
+    React.createElement(
+      'label',
+      { className: 'dxp-check', key },
+      React.createElement('input', {
+        type: 'checkbox',
+        checked: options[key],
+        onChange: (event) => setOption(key, event.target.checked),
+      }),
+      label,
+    )
 
   return React.createElement(
     'section',
@@ -223,12 +266,18 @@ function PdfView(props) {
       'div',
       { className: 'dxp-head' },
       React.createElement('div', { className: 'dxp-title' }, React.createElement('strong', null, 'PDF'), statusText === '' ? null : React.createElement('span', { className: 'dxp-status' }, statusText)),
+      React.createElement(
+        'div',
+        { className: 'dxp-options', role: 'group', 'aria-label': '导出内容' },
+        option('tools', '工具调用摘要'),
+        option('attachments', '附件占位'),
+      ),
       React.createElement('button', { type: 'button', className: 'dxp-download', disabled: !ready || download.kind === 'loading', onClick: downloadPdf }, buttonText),
     ),
     React.createElement(
       'div',
       { className: 'dxp-body' },
-      renderBody(state, () => setAttempt((value) => value + 1)),
+      renderBody(displayState, () => setAttempt((value) => value + 1)),
       download.kind === 'error' ? React.createElement('p', { className: 'dxp-download-error' }, download.message) : null,
     ),
   )

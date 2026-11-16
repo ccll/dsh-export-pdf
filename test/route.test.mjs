@@ -1,4 +1,4 @@
-// 测试锚点: R-01-003/AC-01 R-01-006/AC-01 R-01-006/AC-02 R-01-007/AC-02
+// 测试锚点: R-01-003/AC-01 R-01-006/AC-01 R-01-006/AC-02 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-06
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { SESSION_PDF_PATH, handlePdfRequest } from '../src/route.mjs'
@@ -71,6 +71,39 @@ test('缺失或非法 sessionId 返回 400', async () => {
     assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8')
     assert.match(await response.text(), /sessionId/)
   }
+})
+
+test('include 选择归一、文件名后缀与非法值 400', async () => {
+  let seen
+  const exporter = {
+    exportSession: async (_sessionId, include) => {
+      seen = include
+      return { kind: 'pdf', bytes: PDF }
+    },
+  }
+  const response = await handlePdfRequest(
+    request(`?sessionId=${SESSION_ID}&include=attachments,tools`),
+    exporter,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(seen, ['tools', 'attachments'])
+  assert.equal(response.headers.get('content-disposition'), 'inline; filename="dsh-session-1b9b2ef9-tools-attachments.pdf"')
+
+  const toolsOnly = await handlePdfRequest(
+    request(`?sessionId=${SESSION_ID}&include=tools`),
+    exporterReturning({ kind: 'pdf', bytes: PDF }),
+  )
+  assert.equal(toolsOnly.headers.get('content-disposition'), 'inline; filename="dsh-session-1b9b2ef9-tools.pdf"')
+
+  for (const include of ['unknown', 'tools,tools', 'tools,', 'tools&include=attachments']) {
+    const invalid = await handlePdfRequest(
+      request(`?sessionId=${SESSION_ID}&include=${encodeURIComponent(include)}`),
+      exporterReturning({ kind: 'pdf', bytes: PDF }),
+    )
+    assert.equal(invalid.status, 400, `include=${include}`)
+    assert.match(await invalid.text(), /include/)
+  }
+  assert.deepEqual(seen, ['tools', 'attachments'], '非法请求不得再次调用导出器')
 })
 
 test('非法 disposition 返回 400', async () => {

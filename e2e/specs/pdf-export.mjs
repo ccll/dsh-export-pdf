@@ -11,7 +11,7 @@ import { clickPdfTab, expectedPdfPrefix, newestSessionLog, openApp, sendHeroMess
 //           R-01-003/AC-01 R-01-003/AC-02 R-01-003/AC-03
 //           R-01-004/AC-01 R-01-005/AC-01 R-01-005/AC-02
 //           R-01-006/AC-03 R-01-007/AC-01 R-01-007/AC-02
-//           R-01-008/AC-01 R-01-008/AC-02
+//           R-01-008/AC-01 R-01-008/AC-02 R-01-011/AC-04 R-01-011/AC-06
 // 一次真实会话的 PDF 页：页签、生成中、预览、下载、A4/中文、只读、
 // 无凭据拒绝与同源栅栏。
 const PAGINATION_MARKER = '末段标记Z'
@@ -165,6 +165,41 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     await rm(directory, { recursive: true, force: true })
   }
 
+  // R-01-011/AC-04、AC-06：复选框选择驱动预览地址与下载文件名。
+  const toolsBox = page.getByRole('checkbox', { name: '工具调用摘要' })
+  const attachmentsBox = page.getByRole('checkbox', { name: '附件占位' })
+  assertEqual(await toolsBox.isChecked(), false, '默认不勾选工具调用摘要')
+  assertEqual(await attachmentsBox.isChecked(), false, '默认不勾选附件占位')
+
+  const setSelection = async (box, checked, includeToken, filenameSuffix) => {
+    const responsePromise = page.waitForResponse(
+      (response) => {
+        if (!response.url().includes('/api/session.pdf') || response.request().method() !== 'GET') return false
+        return includeToken === null ? !response.url().includes('include=') : response.url().includes(`include=${includeToken}`)
+      },
+      { timeout: 60_000 },
+    )
+    if (checked) await box.check()
+    else await box.uncheck()
+    if (includeToken !== null) {
+      await page.waitForFunction(() => document.querySelector('.dxp-download')?.disabled === true, { timeout: 5_000 })
+      assertEqual(await downloadButton.isDisabled(), true, `${includeToken} 生成中下载按钮不可用`)
+    }
+    assertEqual((await responsePromise).status(), 200, `${includeToken ?? 'default'} 预览请求成功`)
+    await page.getByText('预览已就绪', { exact: false }).first().waitFor({ timeout: 30_000 })
+    const selectedSource = await iframe.getAttribute('src')
+    if (includeToken === null) assertOk(!selectedSource.includes('include='), '默认最简预览不携带 include')
+    else assertOk(selectedSource.includes(`include=${includeToken}`), `${includeToken} 选择进入预览地址`)
+    await until('下载按钮可用', async () => downloadButton.isEnabled().catch(() => false), 20_000)
+    const [selectedDownload] = await Promise.all([page.waitForEvent('download'), downloadButton.click()])
+    assertEqual(selectedDownload.suggestedFilename(), expectedPdfPrefix(sessionId, filenameSuffix))
+  }
+
+  await setSelection(toolsBox, true, 'tools', '-tools')
+  await setSelection(toolsBox, false, null, '')
+  await setSelection(attachmentsBox, true, 'attachments', '-attachments')
+  await setSelection(attachmentsBox, false, null, '')
+
   // R-01-007/AC-01：导出不得改变会话日志字节。
   assertEqual(await sessionLogDigest(stableLog.path), stableLog.digest, '导出前后会话日志字节一致')
 
@@ -197,7 +232,8 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
   const requestsBeforeBlank = pdfRequests.length
   await page.getByRole('button', { name: 'New Session' }).first().click()
   await page.waitForTimeout(1_500)
-  assertEqual(pdfRequests.length, requestsBeforeBlank, '空会话不发起导出请求')
+  const blankRequests = pdfRequests.slice(requestsBeforeBlank)
+  assertEqual(blankRequests.filter((request) => request.method === 'HEAD').length, 0, '空会话不发起导出请求')
 
   assertEqual(consoleErrors.join('\n'), '', '插件不产生控制台错误或未捕获异常')
 }

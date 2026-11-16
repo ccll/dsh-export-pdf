@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03
+// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-02
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -74,7 +74,7 @@ test('真实浏览器打印：A4、多页、中文字形与转录内容正确', 
     return
   }
 
-  const transcript = foldTranscript(events())
+  const transcript = foldTranscript(events(), { include: ['tools'] })
   const bytes = await renderPdfWithBrowser({
     html: renderTranscriptHtml(transcript),
     browserPath,

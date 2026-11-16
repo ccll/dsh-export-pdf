@@ -1,5 +1,6 @@
 /** 视图页固定文案。 */
 export const EMPTY_TEXT = '该会话还没有消息，暂无可导出的内容。'
+export const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容，可勾选工具调用摘要或附件占位后重试。'
 export const GENERATING_TEXT = '正在生成 PDF…'
 export const READY_TEXT = '预览已就绪'
 export const DOWNLOAD_TEXT = '下载 PDF'
@@ -24,14 +25,16 @@ const ERROR_MESSAGES = {
  * 因此按 document.baseURI 解析成部署前缀下的绝对地址；与宿主其他
  * document-relative 路由一致。
  * @param {string} sessionId 会话标识
- * @param {{ base?: string, disposition?: 'inline' | 'attachment' }} [options]
+ * @param {{ base?: string, disposition?: 'inline' | 'attachment', include?: readonly string[] }} [options]
  * @returns {string}
  */
 export function pdfRouteUrl(sessionId, options = {}) {
   const base = options.base ?? document.baseURI
   const disposition = options.disposition ?? 'inline'
+  const include = Array.isArray(options.include) ? ['tools', 'attachments'].filter((token) => options.include.includes(token)) : []
+  const includeQuery = include.length === 0 ? '' : `&include=${encodeURIComponent(include.join(','))}`
   return new URL(
-    `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}`,
+    `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}${includeQuery}`,
     base,
   ).href
 }
@@ -51,7 +54,8 @@ export function initialViewState(blank) {
  * @returns {string}
  */
 export function viewNoticeText(state) {
-  return state.kind === 'empty' ? EMPTY_TEXT : GENERATING_TEXT
+  if (state.kind !== 'empty') return GENERATING_TEXT
+  return typeof state.message === 'string' && state.message !== '' ? state.message : EMPTY_TEXT
 }
 
 /**
@@ -60,11 +64,11 @@ export function viewNoticeText(state) {
  * @param {number} status HTTP 状态码
  * @param {string} body 响应正文
  * @param {string | null} [code] `x-dsh-export-error` 响应头
- * @returns {{ kind: 'ready' } | { kind: 'empty' } | { kind: 'error', message: string }}
+ * @returns {{ kind: 'ready' } | { kind: 'empty', message?: string } | { kind: 'error', message: string }}
  */
 export function classifyExportResponse(status, body, code) {
   if (status === 200) return { kind: 'ready' }
-  if (status === 204) return { kind: 'empty' }
+  if (status === 204) return { kind: 'empty', message: FILTERED_EMPTY_TEXT }
   return { kind: 'error', message: messageForStatus(status, body, code) }
 }
 

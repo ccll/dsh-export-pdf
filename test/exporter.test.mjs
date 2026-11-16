@@ -1,4 +1,4 @@
-// 测试锚点: R-01-003/AC-02 R-01-006/AC-01 R-01-006/AC-04 R-01-007/AC-02
+// 测试锚点: R-01-003/AC-02 R-01-006/AC-01 R-01-006/AC-04 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-04 R-01-011/AC-05
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createExporter } from '../src/exporter.mjs'
@@ -86,6 +86,34 @@ test('日志增长后重新渲染并替换缓存', async () => {
   assert.deepEqual(third.bytes, second.bytes)
 })
 
+test('不同 include 使用独立缓存与渲染，默认最简不含工具行', async () => {
+  const events = [
+    userEvent(1),
+    { type: 'tool/call', seq: 2, time: 2, data: { name: 'bash', arguments: '{"command":"echo 1"}' } },
+  ]
+  let renders = 0
+  const htmls = []
+  const exporter = makeExporter({
+    events,
+    renderPdf: async (html) => {
+      renders += 1
+      htmls.push(html)
+      return new Uint8Array([...PDF, renders])
+    },
+  })
+  const minimal = await exporter.exportSession('s')
+  const minimalAgain = await exporter.exportSession('s')
+  const tools = await exporter.exportSession('s', ['tools'])
+  const toolsAgain = await exporter.exportSession('s', ['tools'])
+  assert.equal(renders, 2, '默认选择与 tools 选择各渲染一次，同选择命中缓存')
+  assert.equal(minimal.kind, 'pdf')
+  assert.deepEqual(minimalAgain.bytes, minimal.bytes)
+  assert.deepEqual(toolsAgain.bytes, tools.bytes)
+  assert.notDeepEqual(tools.bytes, minimal.bytes)
+  assert.ok(!htmls[0].includes('工具调用'), '默认最简不得包含工具行')
+  assert.ok(htmls[1].includes('工具调用'), '勾选 tools 后包含工具行')
+})
+
 test('同会话并发请求合并为一次渲染', async () => {
   const gate = deferred()
   let renders = 0
@@ -163,6 +191,56 @@ test('空转录返回空态，不探测字体也不启动渲染', async () => {
   assert.deepEqual(second, { kind: 'empty' })
   assert.equal(fonts, 0)
   assert.equal(renders, 0)
+})
+
+test('只有工具调用的会话默认被过滤为空，选 tools 才渲染', async () => {
+  let fonts = 0
+  let renders = 0
+  const exporter = makeExporter({
+    events: [{ type: 'tool/call', seq: 1, time: 1, data: { name: 'bash', arguments: '{}' } }],
+    hasCjkFont: async () => {
+      fonts += 1
+      return true
+    },
+    renderPdf: async () => {
+      renders += 1
+      return PDF
+    },
+  })
+  assert.deepEqual(await exporter.exportSession('s'), { kind: 'empty' })
+  assert.equal(fonts, 0)
+  assert.equal(renders, 0)
+  const withTools = await exporter.exportSession('s', ['tools'])
+  assert.equal(withTools.kind, 'pdf')
+  assert.equal(fonts, 1)
+  assert.equal(renders, 1)
+})
+
+test('同会话不同选择并行渲染，按选择各自缓存', async () => {
+  const gates = [deferred(), deferred()]
+  let started = 0
+  const exporter = makeExporter({
+    events: [
+      userEvent(1),
+      { type: 'tool/call', seq: 2, time: 2, data: { name: 'bash', arguments: '{}' } },
+    ],
+    maxConcurrentRenders: 2,
+    renderPdf: async () => {
+      const index = started
+      started += 1
+      await gates[index].promise
+      return PDF
+    },
+  })
+  const minimal = exporter.exportSession('s')
+  const tools = exporter.exportSession('s', ['tools'])
+  await delay()
+  assert.equal(started, 2, '不同选择不共用单飞键，可并行启动')
+  gates[0].resolve()
+  gates[1].resolve()
+  const results = await Promise.all([minimal, tools])
+  assert.equal(results[0].kind, 'pdf')
+  assert.equal(results[1].kind, 'pdf')
 })
 
 test('缺少中文字体时在渲染前失败', async () => {

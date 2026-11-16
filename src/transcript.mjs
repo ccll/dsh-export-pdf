@@ -1,6 +1,8 @@
 /** 工具调用参数摘要的最大字符数。 */
 export const TOOL_ARGUMENT_SUMMARY_MAX = 160
 const TOOL_ARGUMENT_VALUE_MAX = 60
+/** 导出内容选择的合法 token；顺序即缺省归一顺序。 */
+export const INCLUDE_TOKENS = ['tools', 'attachments']
 
 /**
  * 判断一条 user/message 是否真人输入。当前日志以 `source.kind === 'user'`
@@ -17,19 +19,31 @@ export function isHumanUserMessage(event) {
 }
 
 /**
- * 从消息内容块里取可读文本：text 原样保留，图片与文件降为占位符，
- * reasoning 与 tool-call 块不进入正文。
+ * 把合法 token 归一为固定顺序，丢弃未知值；路由负责在边界上报错。
+ * @param {unknown} value 原始选择（数组）
+ * @returns {string[]}
+ */
+export function normalizeInclude(value) {
+  const selected = Array.isArray(value) ? value : []
+  return INCLUDE_TOKENS.filter((token) => selected.includes(token))
+}
+
+/**
+ * 从消息内容块里取可读文本：text 原样保留，图片与文件在包含附件占位时
+ * 降为占位符，reasoning 与 tool-call 块不进入正文。
  * @param {readonly any[] | undefined} blocks 内容块
+ * @param {{ includeAttachments?: boolean }} [options]
  * @returns {string}
  */
-export function messageText(blocks) {
+export function messageText(blocks, options = {}) {
+  const includeAttachments = options.includeAttachments ?? true
   const parts = []
   for (const block of blocks ?? []) {
     if (block?.type === 'text' && typeof block.text === 'string') {
       parts.push(block.text)
-    } else if (block?.type === 'image') {
+    } else if (block?.type === 'image' && includeAttachments) {
       parts.push('[图片]')
-    } else if (block?.type === 'file') {
+    } else if (block?.type === 'file' && includeAttachments) {
       const name = block.attachment?.name
       parts.push(typeof name === 'string' && name !== '' ? `[附件: ${name}]` : '[附件]')
     }
@@ -69,27 +83,31 @@ export function summarizeToolArguments(raw) {
 }
 
 /**
- * 按会话日志顺序折叠转录。只产出三类可渲染条目：用户消息、助手回复、
- * 工具调用；思考块、工具结果与失败尝试不进入结果。
+ * 按会话日志顺序折叠转录。缺省只保留用户与助手文本；`tools` 加入工具调用，
+ * `attachments` 把图片/文件转为占位。思考块、工具结果与失败尝试不进入结果。
  * @param {readonly any[]} events `sessionQuery.readSession` 返回的事件数组
+ * @param {{ include?: readonly string[] }} [options] 导出内容选择
  * @returns {Array<{ kind: 'user' | 'assistant' | 'tool', seq: number, text?: string, name?: string, summary?: string }>}
  */
-export function foldTranscript(events) {
+export function foldTranscript(events, options = {}) {
+  const include = new Set(normalizeInclude(options.include))
+  const includeAttachments = include.has('attachments')
   const entries = []
   for (const event of events ?? []) {
     switch (event?.type) {
       case 'user/message': {
         if (!isHumanUserMessage(event)) break
-        const text = messageText(event.data?.content)
+        const text = messageText(event.data?.content, { includeAttachments })
         if (text !== '') entries.push({ kind: 'user', seq: event.seq, text })
         break
       }
       case 'assistant/message': {
-        const text = messageText(event.data?.message?.content)
+        const text = messageText(event.data?.message?.content, { includeAttachments })
         if (text !== '') entries.push({ kind: 'assistant', seq: event.seq, text })
         break
       }
       case 'tool/call': {
+        if (!include.has('tools')) break
         const rawName = typeof event.data?.name === 'string' && event.data.name !== '' ? event.data.name : '(未命名工具)'
         const name = rawName.replace(/\s+/g, ' ').trim() || '(未命名工具)'
         entries.push({ kind: 'tool', seq: event.seq, name, summary: summarizeToolArguments(event.data?.arguments) })

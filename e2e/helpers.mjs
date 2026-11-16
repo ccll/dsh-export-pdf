@@ -92,10 +92,10 @@ export async function clickPdfTab(page) {
 }
 
 /** 取当前导出文件名里的会话标识片段；下载断言用。 */
-export function expectedPdfPrefix(sessionId) {
+export function expectedPdfPrefix(sessionId, suffix = '') {
   const raw = String(sessionId)
   const identity = raw.startsWith('session-') ? raw.slice('session-'.length) : raw
-  return `dsh-session-${identity.slice(0, 8)}.pdf`
+  return `dsh-session-${identity.slice(0, 8)}${suffix}.pdf`
 }
 
 /** 隔离环境里最近写入的会话日志路径。 */
