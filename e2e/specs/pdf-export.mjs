@@ -14,7 +14,7 @@ import { clickPdfTab, expectedPdfPrefix, newestSessionLog, openApp, sendHeroMess
 //           R-01-008/AC-01 R-01-008/AC-02
 // 一次真实会话的 PDF 页：页签、生成中、预览、下载、A4/中文、只读、
 // 无凭据拒绝与同源栅栏。
-const PAGINATION_MARKER = '末段标记-中文分页探针'
+const PAGINATION_MARKER = '末段标记Z'
 const USER_TEXT = `e2e:pdf 中文导出探针 ${'中文分页探针，用于验证页内预览与下载覆盖全部页面。'.repeat(120)} ${PAGINATION_MARKER}`
 const ASSISTANT_TEXT = '导出探针回复：中文可读，包含标点与 12345。'
 const FOREIGN_ORIGIN = 'http://evil.invalid'
@@ -139,8 +139,17 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
       const pages = Number(/^Pages:\s+(\d+)$/m.exec(info)?.[1] ?? '0')
       assertOk(pages >= 2, '长中文消息应分页，预览可浏览全部页面')
       if (requireCommand('pdftotext')) {
-        const lastPage = execFileSync('pdftotext', ['-f', String(pages), '-l', String(pages), savedPath, '-'], { encoding: 'utf8' })
-        assertOk(lastPage.includes(PAGINATION_MARKER), '末段标记位于最后一页')
+        // 右侧气泡变窄后，长用户消息可能正好在页尾结束、助手回复另起一页；
+        // 因此只断言标记出现在非首页的某一页，而不是机械地要求它在末页。
+        let markerPage = 0
+        for (let pageNumber = 1; pageNumber <= pages; pageNumber += 1) {
+          const pageText = execFileSync('pdftotext', ['-f', String(pageNumber), '-l', String(pageNumber), savedPath, '-'], { encoding: 'utf8' })
+          if (pageText.includes(PAGINATION_MARKER)) {
+            markerPage = pageNumber
+            break
+          }
+        }
+        assertOk(markerPage > 1, `末段标记应跨页出现，实际在第 ${markerPage} 页`)
       }
     }
     if (requireCommand('pdftotext')) {

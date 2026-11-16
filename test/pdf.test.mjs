@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03
+// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -25,7 +25,7 @@ function hasCommand(command) {
 function events() {
   const list = []
   let seq = 1
-  list.push({ type: 'user/message', seq: seq++, time: seq, data: { source: { kind: 'user' }, content: [{ type: 'text', text: `中文导出探针 ${CJK_LINE}` }] } })
+  list.push({ type: 'user/message', seq: seq++, time: seq, data: { source: { kind: 'user' }, content: [{ type: 'text', text: `用户右对齐标记 中文导出探针 ${CJK_LINE}` }] } })
   // 内部注入不得进入 PDF。
   list.push({ type: 'user/message', seq: seq++, time: seq, data: { source: { kind: 'runtime-context' }, content: [{ type: 'text', text: '内部上下文注入不应出现' }] } })
   list.push({
@@ -37,7 +37,7 @@ function events() {
         role: 'assistant',
         content: [
           { type: 'reasoning', text: '思考块正文不应出现' },
-          { type: 'text', text: `助手回答 ${CJK_LINE}` },
+          { type: 'text', text: `助手左对齐标记 助手回答 ${CJK_LINE}` },
         ],
       },
     },
@@ -109,12 +109,25 @@ test('真实浏览器打印：A4、多页、中文字形与转录内容正确', 
     assert.ok(!firstPage.includes(`第 ${PARAGRAPHS} 段`), '末段不在第一页，内容确实分页')
     assert.ok(lastPage.includes(`第 ${PARAGRAPHS} 段`), '末页续排到最后一段')
 
-    // R-01-005/AC-02：词框不得越过页面右边界（A4 宽 595pt，右侧留白 45pt）。
+    // R-01-005/AC-02 与 R-01-009/AC-03：词框不得越过页面右边界（A4 宽 595pt，右侧留白 45pt）。
     const bbox = execFileSync('pdftotext', ['-bbox', pdfPath, '-'], { encoding: 'utf8' })
     const rightEdges = [...bbox.matchAll(/xMax="([\d.]+)"/g)].map((match) => Number(match[1]))
     assert.ok(rightEdges.length > 0, 'bbox 应包含词框')
     const maxRight = Math.max(...rightEdges)
-    assert.ok(maxRight < 570, `内容不得越出页面右边界，实际 xMax=${maxRight}`)
+    assert.ok(maxRight < 552, `内容不得越出页面右边界，实际 xMax=${maxRight}`)
+
+    // R-01-009/AC-01、AC-02：用户消息整体右移，助手回复从左侧起排。
+    const wordXMin = (marker) => {
+      const line = bbox.split('\n').find((value) => value.includes(marker))
+      const match = /xMin="([\d.]+)"/.exec(line ?? '')
+      return match === null ? undefined : Number(match[1])
+    }
+    const userX = wordXMin('用户右对齐标记')
+    const assistantX = wordXMin('助手左对齐标记')
+    assert.ok(userX !== undefined && assistantX !== undefined, 'bbox 应包含两侧标记词')
+    assert.ok(assistantX < 300, `助手回复应从左侧起排，实际 xMin=${assistantX}`)
+    assert.ok(userX > assistantX + 80, `用户消息应右移，用户 xMin=${userX}，助手 xMin=${assistantX}`)
+    assert.ok(maxRight > 500, `用户消息应抵达版心右缘，实际 xMax=${maxRight}`)
     // 第一页正文应从用户消息开始，而不是 Chrome 默认页眉的日期。
     assert.ok(firstPage.includes('中文导出探针'), '第一页包含用户消息')
     assert.ok(!/^\s*\d{1,2}\/\d{1,2}\/\d{2}/.test(firstPage), '第一页不得出现 Chrome 默认页眉日期')

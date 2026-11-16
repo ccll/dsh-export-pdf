@@ -34,18 +34,28 @@ body {
 main { display: block; }
 .entry { margin: 0 0 5.5mm; }
 .entry:last-child { margin-bottom: 0; }
-.role { color: #6b6b6b; font-size: 8.5pt; font-weight: 600; letter-spacing: 0.12em; margin: 0 0 1.2mm; }
+.entry.user { width: fit-content; max-width: 82%; margin-left: auto; }
+.entry.assistant { width: fit-content; max-width: 82%; margin-right: auto; }
+.role { break-after: avoid; color: #6b6b6b; font-size: 8.5pt; font-weight: 600; letter-spacing: 0.12em; margin: 0 0 1.2mm; }
+.entry.user .role { color: #4f6f9f; text-align: right; }
 .body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-.entry.user .body { border-left: 2pt solid #8a8a8a; padding-left: 3.5mm; }
-.entry.assistant .body { padding-left: 3.5mm; }
+.entry.user .body {
+  background: #eef3fb;
+  border-radius: 2mm;
+  box-sizing: border-box;
+  padding: 2mm 3mm;
+}
+.entry.assistant .body { border-left: 1.5pt solid #d0d0d0; padding-left: 3.5mm; }
 .entry.tool .body {
   background: #f3f3f3;
   border-radius: 1.2mm;
+  box-sizing: border-box;
   color: #333333;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 9pt;
   line-height: 1.5;
   padding: 1.6mm 2.6mm;
+  width: 100%;
 }
 .tool-name { font-weight: 600; }
 `
