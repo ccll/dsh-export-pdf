@@ -6,7 +6,7 @@ id: T-007
 
 # T-007 图片导出模式：不导出、占位或嵌入原图
 
-状态: active
+状态: completed
 类型: UI/UX 改进
 风险等级: major
 风险面: 对外接口参数、PDF 内容与缓存键变化，并触及会话附件读取与敏感图片边界
@@ -58,12 +58,20 @@ id: T-007
 
 ## 自查清单
 
-- [ ] 边界：纯图片消息在占位/嵌入保留、不导出省略；纯文件消息只由文件复选框控制。
-- [ ] 异常：image 非法值 400；附件缺失/损坏/格式不支持回退占位，不返回半份 PDF。
-- [ ] 回归：A4、分页、中文、右对齐、角色图标、工具摘要与默认文件名不变。
-- [ ] 交互：切换图片模式或文件复选框会取消旧请求，预览与下载同一模式。
-- [ ] 安全：只从日志附件引用读图，不读任意路径/URL；PDF 不泄露宿主路径。
+- [x] 边界：纯图片消息在占位/嵌入保留、不导出省略；纯文件消息只由文件复选框控制。
+- [x] 异常：image 非法值 400；附件缺失/损坏/格式不支持回退占位，不返回半份 PDF。
+- [x] 回归：A4、分页、中文、右对齐、角色图标、工具摘要与默认文件名不变。
+- [x] 交互：切换图片模式或文件复选框会取消旧请求，预览与下载同一模式。
+- [x] 安全：只从日志附件引用读图，不读任意路径/URL；PDF 不泄露宿主路径。
 
 ## 终态与证据
 
-关闭时填写实现、测试、SOLUTION 对照、commit 与完整 review 三标签；并完成 R-01-012 的里程碑勾选。
+- 实现: 新增 `image=placeholder|embed|none`（缺省 placeholder）；`include=attachments` 收敛为只控制文件占位；转录保留图文分段，嵌入模式经 `ctx.attachments.readImage(ref)` 读取附件并内联 data URI，单图失败回退 `[图片]`。视图增加图片下拉与“文件附件”复选框；缓存键与文件名按图片模式隔离（`-images`/`-no-images`）；客户端 bundle 已重建。实现提交 `07d2b47`，复审修复 `2ac29fe`。
+- 测试: `pnpm verify` 通过——`pnpm test` 66 通过（转录三模式/纯图片/文件独立、images 解析与 URL 拒绝、render 分段与 MIME、exporter 缓存/回退、route image 校验、naming/view-state 后缀与 URL、真实 Chrome 三模式与 800×400 图版心宽度）；`pnpm test:e2e` 两套通过（图片下拉默认占位、embed/none 地址与文件名、预览下载同字节）；`pnpm check` 通过。
+- SOLUTION 对照: R-01-012 AC-01..06 与 SOLUTION 产品契约/核心不变量/运行时失败语义一致；R-01-011 默认含图片占位、文件由 `attachments` 独立控制的修订已同步；DOMAIN 附件占位只指文件；未发现残留差异。
+- commit: 2ac29fe
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 4cf91aae / Spec efcbd376），复审由同一审核方执行
+  - 目的理解: 让 PDF 的图片可在不导出、占位与嵌入原图之间独立选择，默认占位；文件附件单独控制且从不嵌入；嵌入只读取会话附件引用、失败回退，并让预览/下载/文件名/缓存共享同一模式。
+  - 问题与修复: Standards 轴首轮 1 条 blocking——DOMAIN.md:21 的附件占位定义仍把图片算入，已改为只指文件；non-blocking 的 attachmentId URL/路径校验、render MIME 白名单、selectionKey/partsText 重复已修。Spec 轴首轮无 blocking，non-blocking 的 AC-06 证据偏弱、e2e AC-01 锚点与 README 使用段旧口径已修；真实 Chrome 用例改为 800×400 图并断言不超过 505pt 版心。复审结论：Standards blocking 清零，Spec 通过。
+  - 复审结论: 两轴均通过、无 blocking；残余风险为 mock e2e 不产生图片（内容层由真实 Chrome 用例覆盖）、嵌入无独立字节上限（受 DSH 附件限制）、attachments 整体缺失时单图回退不可达；累计审计 T-008 已复位。
