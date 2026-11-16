@@ -59,7 +59,10 @@ export function summarizeToolArguments(raw) {
   const parts = []
   for (const [key, value] of Object.entries(parsed)) {
     const rendered = typeof value === 'string' ? value : JSON.stringify(value)
-    parts.push(`${key}=${truncate(rendered, TOOL_ARGUMENT_VALUE_MAX)}`)
+    // 参数值里的换行、制表符会把“单行摘要”撑成多行，统一折叠为空格。
+    const normalized = String(rendered ?? '').replace(/\s+/g, ' ')
+    const label = key.replace(/\s+/g, ' ').trim() || '(空键)'
+    parts.push(`${label}=${truncate(normalized, TOOL_ARGUMENT_VALUE_MAX)}`)
     if (parts.join(', ').length >= TOOL_ARGUMENT_SUMMARY_MAX) break
   }
   return truncate(parts.join(', '), TOOL_ARGUMENT_SUMMARY_MAX)
@@ -87,7 +90,8 @@ export function foldTranscript(events) {
         break
       }
       case 'tool/call': {
-        const name = typeof event.data?.name === 'string' && event.data.name !== '' ? event.data.name : '(未命名工具)'
+        const rawName = typeof event.data?.name === 'string' && event.data.name !== '' ? event.data.name : '(未命名工具)'
+        const name = rawName.replace(/\s+/g, ' ').trim() || '(未命名工具)'
         entries.push({ kind: 'tool', seq: event.seq, name, summary: summarizeToolArguments(event.data?.arguments) })
         break
       }

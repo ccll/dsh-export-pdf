@@ -14,7 +14,8 @@ import { clickPdfTab, expectedPdfPrefix, newestSessionLog, openApp, sendHeroMess
 //           R-01-008/AC-01 R-01-008/AC-02
 // 一次真实会话的 PDF 页：页签、生成中、预览、下载、A4/中文、只读、
 // 无凭据拒绝与同源栅栏。
-const USER_TEXT = 'e2e:pdf 中文导出探针'
+const PAGINATION_MARKER = '末段标记-中文分页探针'
+const USER_TEXT = `e2e:pdf 中文导出探针 ${'中文分页探针，用于验证页内预览与下载覆盖全部页面。'.repeat(120)} ${PAGINATION_MARKER}`
 const ASSISTANT_TEXT = '导出探针回复：中文可读，包含标点与 12345。'
 const FOREIGN_ORIGIN = 'http://evil.invalid'
 
@@ -85,7 +86,10 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     (response) => response.url().includes('/api/session.pdf') && response.request().method() === 'GET',
     { timeout: 60_000 },
   )
+  const downloadButton = page.getByRole('button', { name: '下载 PDF' }).first()
   assertEqual(await clickPdfTab(page), true, '会话视图区应有 PDF 页签')
+  await page.locator('.dxp-status').filter({ hasText: '正在生成 PDF…' }).first().waitFor({ timeout: 5_000 })
+  assertEqual(await downloadButton.isDisabled(), true, '生成中下载动作不可用')
   const response = await pdfResponse
   assertEqual(response.status(), 200)
   assertOk((response.headers()['content-type'] ?? '').includes('application/pdf'), '预览请求返回 application/pdf')
@@ -109,7 +113,6 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
   assertEqual(preview.status(), 200, '预览地址可取到 PDF')
   const previewBytes = await preview.body()
 
-  const downloadButton = page.getByRole('button', { name: '下载 PDF' }).first()
   await until('下载按钮可用', async () => downloadButton.isEnabled().catch(() => false), 20_000)
   const [download] = await Promise.all([page.waitForEvent('download'), downloadButton.click()])
   assertEqual(download.suggestedFilename(), expectedPdfPrefix(sessionId))
@@ -127,13 +130,18 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
       const info = pdfInfo(savedPath)
       assertOk(/Page size:\s+59[45](?:\.\d+)? x 84[12](?:\.\d+)? pts/.test(info), '下载的 PDF 为 A4')
       const pages = Number(/^Pages:\s+(\d+)$/m.exec(info)?.[1] ?? '0')
-      assertOk(pages >= 1, 'PDF 至少一页')
+      assertOk(pages >= 2, '长中文消息应分页，预览可浏览全部页面')
+      if (hasCommand('pdftotext')) {
+        const lastPage = execFileSync('pdftotext', ['-f', String(pages), '-l', String(pages), savedPath, '-'], { encoding: 'utf8' })
+        assertOk(lastPage.includes(PAGINATION_MARKER), '末段标记位于最后一页')
+      }
     } else {
       console.error('e2e: SKIP pdfinfo 断言（宿主缺少 pdfinfo）')
     }
     if (hasCommand('pdftotext')) {
       const text = pdfText(savedPath)
       assertOk(text.includes('中文导出探针'), 'PDF 文本层含用户中文消息')
+      assertOk(text.includes(PAGINATION_MARKER), 'PDF 文本层含末段标记')
       assertOk(text.includes('导出探针回复'), 'PDF 文本层含助手回复')
       assertOk(!text.includes('file://'), 'PDF 不含临时文件路径')
     } else {

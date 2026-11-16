@@ -56,16 +56,21 @@ function events() {
 
 test('真实浏览器打印：A4、多页、中文字形与转录内容正确', { timeout: 120_000 }, async (context) => {
   const browserPath = await resolveBrowserPath('').catch(() => undefined)
+  const skip = (reason) => {
+    // CI 已显式安装 Chrome 与 CJK 字体；静默跳过会让 A4/中文断言零覆盖。
+    if (process.env.CI) assert.fail(reason)
+    context.skip(reason)
+  }
   if (browserPath === undefined) {
-    context.skip('宿主没有可用的 Chrome/Chromium')
+    skip('宿主没有可用的 Chrome/Chromium')
     return
   }
   if (!(await detectCjkFont())) {
-    context.skip('宿主没有可用的中文字体')
+    skip('宿主没有可用的中文字体')
     return
   }
   if (!hasCommand('pdfinfo') || !hasCommand('pdftotext')) {
-    context.skip('宿主缺少 pdfinfo/pdftotext')
+    skip('宿主缺少 pdfinfo/pdftotext')
     return
   }
 

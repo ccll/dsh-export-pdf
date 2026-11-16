@@ -191,6 +191,14 @@ test('子会话在读取后、渲染前被拒绝', async () => {
   assert.equal(renders, 0)
 })
 
+test('fork 会话有 parentSession 但 delegationDepth 为 0，允许导出', async () => {
+  const exporter = makeExporter({
+    readSession: async () => snapshot([userEvent(1)], { parentSession: { id: 'session-parent' }, delegationDepth: 0 }),
+  })
+  const result = await exporter.exportSession('s')
+  assert.equal(result.kind, 'pdf')
+})
+
 test('日志读取失败映射为会话不可用并记录原因', async () => {
   const logged = []
   const exporter = makeExporter({

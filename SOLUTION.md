@@ -43,7 +43,7 @@ owner: agent 主笔，项目属主审批
 |---|---|---|
 | 边界与契约已明确 | 通过 | SOLUTION.md#产品契约 |
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
-| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md |
+| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
 | 现状差距已有 task 承接 | 通过 | T-001 承接全部需求（active） |
 | 可派生验证 | 通过 | SOLUTION.md#产品契约 |
@@ -185,7 +185,7 @@ flowchart LR
 
 | 项 | 值 |
 |---|---|
-| 方法与路径 | `GET /api/session.pdf`、`HEAD /api/session.pdf` |
+| 方法与路径 | `GET /api/session.pdf`、`HEAD /api/session.pdf`；其它方法 `405`，`Allow: GET, HEAD` |
 | 参数 `sessionId` | 必填，会话标识 |
 | 参数 `disposition` | 可选，`inline` 或 `attachment`，缺省 `inline` |
 | 成功响应 | `200`，`Content-Type: application/pdf`，`Content-Disposition` 取 `disposition` |
@@ -209,7 +209,7 @@ flowchart LR
 - 折叠后没有任何条目时按“无可导出内容”处理，以 `204` 结束。
 - 工具调用渲染为单行，内容为工具名与参数摘要。
 - 思考块在折叠阶段丢弃，不进入 PDF。
-- 子会话的事件不读取、不渲染。
+- 子会话不进入折叠、渲染与缓存，也不启动浏览器。
 - 会话日志只读，导出不写回日志文件。
 - PDF 不含页眉页脚与页码，页面内容只来自转录。
 - 不使用 Chrome 默认页眉页脚，因为它会写入日期、标题与临时文件路径。
@@ -227,7 +227,7 @@ flowchart LR
 - 浏览器可执行文件缺失时立即以 `503` 结束，不启动子进程。
 - 宿主缺少可用的中文字体时立即以 `503` 结束，并说明缺少中文字体。
 - 折叠结果为空时以 `204` 结束，不启动浏览器，也不写临时文件。
-- 子会话标识在读取日志前即被拒绝，以 `400` 结束，不读取该会话日志。
+- 子会话标识在读取日志后、渲染前被拒绝，以 `400` 结束；不折叠、不打印、不缓存，也不启动浏览器。
 - 子进程以非零码退出时取其标准错误的前若干行作为失败说明，写入宿主日志，响应只给简要原因。
 - 临时 HTML 与 PDF 文件写在系统临时目录，用尽即删，异常路径同样删除。
 - 并发渲染数受配置上限约束，超出时排队而非并行启动多个浏览器进程。
@@ -253,7 +253,7 @@ flowchart LR
 ## 安全与信任边界
 
 - 路由挂在 `/api` 下，宿主对每个请求执行浏览器会话鉴权与 Host/Origin 检查。
-- 插件在边界内校验 `sessionId` 非空且属于当前可见会话，参数非法返回 `400`。
+- 插件在边界内校验 `sessionId` 非空且格式合法，参数非法返回 `400`；会话归属与访问控制由宿主的浏览器鉴权与 Host/Origin 栅栏承担，路由不判断页面当前可见会话（C-004）。
 - 响应不设置 `Access-Control-Allow-Origin`，跨源读取不可用。
 - 浏览器子进程只接收插件生成的 HTML，不接触凭据与用户环境变量。
 - 错误响应只给简要原因，不回显日志内容或文件路径。
@@ -268,12 +268,12 @@ flowchart LR
 
 | 需求 | 主责子系统 | 方案落点 | 实现位置 |
 |---|---|---|---|
-| R-01-001 | 会话导出 | SOLUTION.md#产品契约 | src/view.mjs |
-| R-01-002 | 会话导出 | SOLUTION.md#运行时交互图 | src/view.mjs |
-| R-01-003 | 会话导出 | SOLUTION.md#产品契约 | src/view.mjs |
+| R-01-001 | 会话导出 | SOLUTION.md#产品契约 | src/view.mjs, src/view-state.mjs |
+| R-01-002 | 会话导出 | SOLUTION.md#运行时交互图 | src/view.mjs, src/view-state.mjs |
+| R-01-003 | 会话导出 | SOLUTION.md#产品契约 | src/view.mjs, src/naming.mjs, src/route.mjs |
 | R-01-004 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/transcript.mjs |
 | R-01-005 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.mjs |
-| R-01-006 | 会话导出 | SOLUTION.md#运行时与失败语义 | src/exporter.mjs, src/chrome.mjs, src/fonts.mjs |
+| R-01-006 | 会话导出 | SOLUTION.md#运行时与失败语义 | src/exporter.mjs, src/chrome.mjs, src/fonts.mjs, src/route.mjs |
 | R-01-007 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/transcript.mjs, src/exporter.mjs |
 | R-01-008 | 会话导出 | SOLUTION.md#安全与信任边界 | src/route.mjs, src/host.mjs |
 
@@ -286,7 +286,7 @@ flowchart LR
   - 浏览器半区注册一个 `conversation.view` 条目，承担预览与下载交互。
   - 转录折叠与 HTML 渲染是纯函数，仅依赖会话事件与配置。
   - 浏览器进程按需启动，一次渲染一个进程，结束即回收。
-- 代码位置: src/host.mjs, src/view.mjs
+- 代码位置: src/host.mjs, src/route.mjs, src/exporter.mjs, src/view.mjs, src/client.mjs
 - 实现: 双端
 
 ## 横切约束

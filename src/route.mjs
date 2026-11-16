@@ -11,7 +11,9 @@ import { pdfFilename } from './naming.mjs'
 /** 导出路由在 Connection `/api` 通道下的绝对路径。 */
 export const SESSION_PDF_PATH = '/api/session.pdf'
 const SESSION_ID_MAX = 200
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/
+// HTTP 响应头只接受 ByteString；同时限制会话标识为 DSH 生成的 ASCII 形状，
+// 避免非 Latin-1 字符在 content-disposition 构造时抛 TypeError。
+const SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]+$/
 
 /**
  * 处理一次导出请求。参数校验、状态码、响应头与 HEAD 语义集中在这里，
@@ -30,7 +32,7 @@ export async function handlePdfRequest(request, exporter, options = {}) {
 
   const url = new URL(request.url)
   const sessionId = (url.searchParams.get('sessionId') ?? '').trim()
-  if (sessionId === '' || sessionId.length > SESSION_ID_MAX || CONTROL_CHARACTER.test(sessionId)) {
+  if (sessionId === '' || sessionId.length > SESSION_ID_MAX || !SESSION_ID_PATTERN.test(sessionId)) {
     return textResponse(400, '缺少或非法的 sessionId', method, { code: 'request' })
   }
   const disposition = url.searchParams.get('disposition') ?? 'inline'

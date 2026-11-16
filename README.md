@@ -27,7 +27,7 @@ The repository ships the built browser bundle (`.dsh-plugin/client.js`), so inst
 
 Open a session and select the **PDF** page next to Chat and Trajectory. The page generates the PDF once, shows it in the browser's PDF viewer, and enables **Download PDF**. The downloaded file is `dsh-session-<first 8 characters of the session id>.pdf`; the `session-` prefix is removed before slicing so different sessions do not collide.
 
-The page includes user messages and assistant replies in log order, one summary line per tool call, and no thinking blocks or internal runtime-context injections. A blank session shows an empty-state notice instead of starting a render.
+The page includes user messages and assistant replies in log order, one summary line per tool call, and no thinking blocks or internal runtime-context injections. A session with no renderable transcript shows an empty-state notice instead of starting a browser render.
 
 ## Configuration
 
@@ -43,7 +43,7 @@ The plugin accepts three values. Override them in the profile patch layer, for e
 
 | Key | Default | Meaning |
 |---|---|---|
-| `browserPath` | probe `PATH` | Explicit Chrome/Chromium executable; a configured path that is missing or not executable fails plugin load |
+| `browserPath` | probe `PATH` | Explicit Chrome/Chromium executable; a configured path that is missing or not executable makes every export fail with `503` |
 | `timeoutMs` | `30000` | Per-render timeout, 1–600000 ms |
 | `maxConcurrentRenders` | `2` | Concurrent browser renders, 1–16; excess requests queue |
 

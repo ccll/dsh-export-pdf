@@ -100,6 +100,15 @@ test('工具参数摘要保留可读键值并截断超长值', () => {
   assert.ok(many.length <= TOOL_ARGUMENT_SUMMARY_MAX)
 })
 
+test('工具参数里的换行被折叠，摘要始终单行', () => {
+  const summary = summarizeToolArguments('{"command":"line1\\nline2","path":"a\\tb"}')
+  assert.equal(summary, 'command=line1 line2, path=a b')
+  assert.ok(!summary.includes('\n'))
+  const entries = foldTranscript([{ type: 'tool/call', seq: 1, time: 1, data: { name: 'bash\nwidget', arguments: '{"text":"x\\ny"}' } }])
+  assert.equal(entries[0].name, 'bash widget')
+  assert.ok(!entries[0].summary.includes('\n'))
+})
+
 test('空事件列表折叠为空', () => {
   assert.deepEqual(foldTranscript([]), [])
   assert.deepEqual(foldTranscript(undefined), [])

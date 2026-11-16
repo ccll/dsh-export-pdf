@@ -65,7 +65,7 @@ test('空转录返回 204 无正文', async () => {
 })
 
 test('缺失或非法 sessionId 返回 400', async () => {
-  for (const query of ['', '?sessionId=', '?sessionId=%20%20', `?sessionId=${'a'.repeat(201)}`, '?sessionId=%00']) {
+  for (const query of ['', '?sessionId=', '?sessionId=%20%20', `?sessionId=${'a'.repeat(201)}`, '?sessionId=%00', '?sessionId=%E4%BC%9A%E8%AF%9D', '?sessionId=a%22b']) {
     const response = await handlePdfRequest(request(query), exporterReturning({ kind: 'pdf', bytes: PDF }))
     assert.equal(response.status, 400, `query=${query}`)
     assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8')

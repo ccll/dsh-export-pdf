@@ -15,6 +15,7 @@ id: T-001
 ## 背景与目标
 
 - 背景: 仓库只有 PRD/SOLUTION/RATIONALE，没有实现、task 与可执行测试；SOLUTION 的实现就绪检查把全部需求交给 T-001。东家 2026-11-16 拍板两项口径：用户消息只收 `source.kind === 'user'` 的真人输入；折叠后无内容时新增 `204` 响应。
+- 评审后拍板（东家 2026-11-16）: AC-03 的空态可见性改为“宿主渲染该页且会话尚无消息”成立（C-003），因为宿主在 blank 阶段不渲染视图区；会话归属与访问控制明确由宿主鉴权边界承担（C-004），插件只校验格式；子会话记录为“读取后、渲染前拒绝”。另将 R-01-007/AC-01 的 `当…完成后` 规范为 `当…完成时`，语义不变，只为符合 EARS 时态句式。
 - 目标: 交付可装载的 DSH Web 插件——宿主半区注册鉴权内的 PDF 路由，浏览器半区注册 `conversation.view` 的 `PDF` 页；页面内先用同源 HEAD 触发并等待生成，再以原生查看器预览，下载复用同一份字节。
 - 非目标: 不改宿主、不引入运行时 npm 依赖、不落盘、不做页码/模板/主题（PRD NG-4、NG-5、C-002）；不导出子会话（NG-6）。
 
@@ -55,10 +56,10 @@ id: T-001
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
 | 成功 | 适用：会话生成 PDF、预览与下载同一份字节 | `e2e/specs/pdf-export.mjs::R-01-002/AC-01`、`test/route.test.mjs::R-01-003/AC-01` |
-| 异常 | 适用：会话不存在、浏览器缺失、字体缺失、打印失败、参数非法、子会话 | `test/route.test.mjs::R-01-006/AC-02`、`test/exporter.test.mjs::R-01-006/AC-01` |
-| 边界配置 | 适用：browserPath 为空按 PATH 探测、timeoutMs 与 maxConcurrentRenders 生效、空转录 204 | `test/config.test.mjs::timeoutMs`、`test/exporter.test.mjs::R-01-003/AC-02` |
+| 异常 | 适用：会话不存在、浏览器缺失、字体缺失、打印失败、参数非法、子会话 | `test/route.test.mjs::R-01-006/AC-02`、`test/exporter.test.mjs::R-01-006/AC-01`、`e2e/specs/pdf-failure.mjs::R-01-006/AC-01` |
+| 边界配置 | 适用：browserPath 为空按 PATH 探测、timeoutMs 与 maxConcurrentRenders 生效、空转录 204、非 ASCII sessionId 400 | `test/config.test.mjs::timeoutMs`、`test/exporter.test.mjs::R-01-003/AC-02` |
 | 副作用 | 适用：会话日志只读、临时目录清理、缓存不落盘 | `e2e/specs/pdf-export.mjs::R-01-007/AC-01`、`test/exporter.test.mjs::R-01-007/AC-02` |
-| 安全 | 适用：异源拒绝、错误不回显路径、路由注册在宿主鉴权通道 | `e2e/specs/pdf-export.mjs::R-01-008/AC-02`、`test/host.test.mjs::R-01-008/AC-01` |
+| 安全 | 适用：无凭据 401、异源拒绝、错误不回显路径、路由注册在宿主鉴权通道 | `e2e/specs/pdf-export.mjs::R-01-008/AC-01`、`test/host.test.mjs::R-01-008/AC-01` |
 | 兼容性 | 适用：HEAD/GET 响应头一致、`conversation.view` 在宿主 0.2.0-rc.2 装载 | `test/route.test.mjs::R-01-006/AC-02`、`e2e/specs/pdf-export.mjs::R-01-001/AC-01` |
 | 性能 | 适用：缓存命中不重复渲染、同会话并发合并 | `test/exporter.test.mjs::R-01-003/AC-02` |
 
@@ -69,6 +70,7 @@ id: T-001
 - 回归影响：宿主现有 `/api` 路由不受影响；插件卸载后路由与视图条目移除；导出不写会话日志与不落盘。
 - 残余风险：超大日志的 `readSession` 全量校验耗时未做上限；浏览器冷启动实测约 1.45 秒，首个预览有可感知等待；页宽断行由浏览器排版决定，超长不可断行 token 依赖 `overflow-wrap`。
 - 环境限制：系统全局安装的 DSH 带有 `dsh-web-auth-disabled 2026-10-13` 补丁，浏览器鉴权恒通过。e2e 因此改用 `devDependencies` 锁定的 0.2.0-rc.2（未打补丁）启动隔离实例，无凭据请求实测 401（R-01-008/AC-01），异源请求实测 403（AC-02）；不使用全局安装做验收。
+- CI 闭环：`verify` job 安装 Noto CJK 与 poppler-utils，先验证 `google-chrome`、`fc-list`、`pdfinfo` 可用再跑测试；CI 环境下缺少这些依赖会让 `test/pdf.test.mjs` 直接失败而不是跳过，避免 A4/中文断言零覆盖。
 
 ## 终态与证据
 

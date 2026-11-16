@@ -23,7 +23,7 @@ try {
   await access(chromePath)
 } catch {
   console.error(`e2e: SKIP 全部 spec（找不到浏览器 ${chromePath}；可用 CHROME_PATH 指定）`)
-  process.exit(0)
+  process.exit(process.env.CI ? 1 : 0)
 }
 
 let failed = 0
