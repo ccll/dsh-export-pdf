@@ -54,12 +54,12 @@ Invalid values fail at plugin load instead of silently falling back.
 - **PDF view page**: a view in the session view area providing both preview and download.
 - **In-page preview**: the generated PDF is displayed in place in the browser's PDF viewer, with navigation across all pages.
 - **Download**: delivers the same bytes under the stable filename above.
-- **Faithful transcript**: user messages and assistant replies in log order; tool calls summarized on one line; thinking blocks omitted.
+- **Faithful transcript**: user and assistant message text in log order by default; the header checkboxes add one-line tool summaries and attachment placeholders; thinking blocks omitted.
 - **Readable Chinese output**: CJK glyphs embedded, A4 pages, Chrome's default header/footer disabled so no date, title, or temporary file path is printed.
 - **Visible failures**: a missing session, an unreadable log, a missing browser, a missing CJK font, a render failure, or a timeout produces an explicit message on the page and never a partial file. A failed render is not cached, so **Retry** starts a fresh attempt.
 - **Read-only**: exporting never writes to the session log and leaves no files behind.
 - **Credentialed and same-origin only**: the route is registered through DSH's `/api` channel, so the host's browser authentication and Host/Origin fence apply before the plugin sees the request.
-- **Per-session reuse**: concurrent requests for one session share a single render; a cached result is reused until the log grows.
+- **Per-selection reuse**: concurrent requests for one session and selection share a single render; a cached result is reused until the log grows or the selection changes.
 
 ## Development
 

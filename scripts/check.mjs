@@ -5,15 +5,15 @@ import { execFileSync } from 'node:child_process'
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildClient, clientBundle } from './build-client.mjs'
+import { clientBundle } from './build-client.mjs'
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 
 async function main() {
-  const outPath = await buildClient()
-  const bundle = await readFile(outPath, 'utf8')
+  const bundlePath = join(repositoryRoot, '.dsh-plugin', 'client.js')
+  const bundle = await readFile(bundlePath, 'utf8')
   const generated = await clientBundle()
-  assert.equal(bundle, generated, 'client bundle 与构建函数输出一致')
+  assert.equal(bundle, generated, '已提交 client bundle 与构建函数输出一致；运行 pnpm build:client 重建')
   assert.ok(bundle.includes('window.__ModuleLoader__.load({'), 'bundle 使用宿主模块加载器包装')
   assert.ok(bundle.includes('id: "dsh-export-pdf"'), 'bundle id 与包名一致')
   assert.ok(bundle.includes('const React = require("react");'), 'bundle 从平台模块表取 React')

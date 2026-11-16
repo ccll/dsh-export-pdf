@@ -5,7 +5,7 @@ window.__ModuleLoader__.load({
     var module = { exports: {} };
     var exports = module.exports;
     const React = require("react");
-/** 导出内容选择的唯一 token 顺序；新增内容类型只改这里。 */
+/** 导出内容选择的 token 顺序与文件名后缀集中在这里；新增类型仍需接入视图文案。 */
 const INCLUDE_TOKENS = ['tools', 'attachments']
 
 /**
@@ -19,7 +19,7 @@ function normalizeInclude(value) {
 }
 
 /**
- * 文件名后缀：只有附加内容选择时追加，默认最简不加班。
+ * 文件名后缀：只有附加内容选择时追加，默认最简不加后缀。
  * @param {unknown} value 原始选择（数组）
  * @returns {string}
  */
@@ -50,7 +50,7 @@ function pdfFilename(sessionId, include = []) {
 
 /** 视图页固定文案。 */
 const EMPTY_TEXT = '该会话还没有消息，暂无可导出的内容。'
-const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容，可调整勾选后重试。'
+const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容。'
 const GENERATING_TEXT = '正在生成 PDF…'
 const READY_TEXT = '预览已就绪'
 const DOWNLOAD_TEXT = '下载 PDF'
@@ -198,6 +198,7 @@ function PdfView(props) {
   const [download, setDownload] = React.useState({ kind: 'idle' })
   const [attempt, setAttempt] = React.useState(0)
   const [selection, setSelection] = React.useState(() => ({ sessionId, options: DEFAULT_OPTIONS }))
+  const downloadAbort = React.useRef(null)
   const options = selection.sessionId === sessionId ? selection.options : DEFAULT_OPTIONS
   const include = includeFromOptions(options)
   const includeKey = include.join(',')
@@ -230,12 +231,27 @@ function PdfView(props) {
     }
   }, [sessionId, blank, attempt, includeKey])
 
+  // 选择或会话变化时取消在途下载，避免旧选择的文件在切换后落盘（R-01-011/AC-04）。
+  React.useEffect(() => () => {
+    if (downloadAbort.current !== null) {
+      downloadAbort.current.abort()
+      downloadAbort.current = null
+    }
+  }, [sessionId, includeKey])
+
   const downloadPdf = React.useCallback(async () => {
     if (state.kind !== 'ready' || state.sessionId !== sessionId || state.includeKey !== includeKey) return
+    if (downloadAbort.current !== null) downloadAbort.current.abort()
+    const controller = new AbortController()
+    downloadAbort.current = controller
     setDownload({ kind: 'loading' })
     try {
       const selectedInclude = includeKey === '' ? [] : includeKey.split(',')
-      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude }), { credentials: 'same-origin' })
+      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude }), {
+        credentials: 'same-origin',
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
       if (response.status === 204) {
         setDownload({ kind: 'error', message: FILTERED_EMPTY_TEXT })
         return
@@ -246,6 +262,7 @@ function PdfView(props) {
         return
       }
       const blob = await response.blob()
+      if (controller.signal.aborted) return
       const objectUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = objectUrl
@@ -255,8 +272,11 @@ function PdfView(props) {
       anchor.remove()
       setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
       setDownload({ kind: 'idle' })
-    } catch {
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') return
       setDownload({ kind: 'error', message: NETWORK_ERROR_TEXT })
+    } finally {
+      if (downloadAbort.current === controller) downloadAbort.current = null
     }
   }, [state, sessionId, includeKey])
 

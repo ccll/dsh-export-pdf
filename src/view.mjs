@@ -45,6 +45,7 @@ export function PdfView(props) {
   const [download, setDownload] = React.useState({ kind: 'idle' })
   const [attempt, setAttempt] = React.useState(0)
   const [selection, setSelection] = React.useState(() => ({ sessionId, options: DEFAULT_OPTIONS }))
+  const downloadAbort = React.useRef(null)
   const options = selection.sessionId === sessionId ? selection.options : DEFAULT_OPTIONS
   const include = includeFromOptions(options)
   const includeKey = include.join(',')
@@ -77,12 +78,27 @@ export function PdfView(props) {
     }
   }, [sessionId, blank, attempt, includeKey])
 
+  // 选择或会话变化时取消在途下载，避免旧选择的文件在切换后落盘（R-01-011/AC-04）。
+  React.useEffect(() => () => {
+    if (downloadAbort.current !== null) {
+      downloadAbort.current.abort()
+      downloadAbort.current = null
+    }
+  }, [sessionId, includeKey])
+
   const downloadPdf = React.useCallback(async () => {
     if (state.kind !== 'ready' || state.sessionId !== sessionId || state.includeKey !== includeKey) return
+    if (downloadAbort.current !== null) downloadAbort.current.abort()
+    const controller = new AbortController()
+    downloadAbort.current = controller
     setDownload({ kind: 'loading' })
     try {
       const selectedInclude = includeKey === '' ? [] : includeKey.split(',')
-      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude }), { credentials: 'same-origin' })
+      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude }), {
+        credentials: 'same-origin',
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
       if (response.status === 204) {
         setDownload({ kind: 'error', message: FILTERED_EMPTY_TEXT })
         return
@@ -93,6 +109,7 @@ export function PdfView(props) {
         return
       }
       const blob = await response.blob()
+      if (controller.signal.aborted) return
       const objectUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = objectUrl
@@ -102,8 +119,11 @@ export function PdfView(props) {
       anchor.remove()
       setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
       setDownload({ kind: 'idle' })
-    } catch {
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') return
       setDownload({ kind: 'error', message: NETWORK_ERROR_TEXT })
+    } finally {
+      if (downloadAbort.current === controller) downloadAbort.current = null
     }
   }, [state, sessionId, includeKey])
 

@@ -2,7 +2,7 @@ import { normalizeInclude } from './selection.mjs'
 
 /** 视图页固定文案。 */
 export const EMPTY_TEXT = '该会话还没有消息，暂无可导出的内容。'
-export const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容，可调整勾选后重试。'
+export const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容。'
 export const GENERATING_TEXT = '正在生成 PDF…'
 export const READY_TEXT = '预览已就绪'
 export const DOWNLOAD_TEXT = '下载 PDF'
