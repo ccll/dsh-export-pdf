@@ -1,0 +1,56 @@
+{
+  "name": "dsh-export-pdf",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness Web plugin: render a session transcript as an in-page PDF preview with one-click download",
+  "packageManager": "pnpm@11.5.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "main": "./.dsh-plugin/index.mjs",
+  "exports": {
+    ".": "./.dsh-plugin/index.mjs",
+    "./client": "./.dsh-plugin/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    ".dsh-plugin",
+    "src",
+    "scripts/build-client.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build:client": "node scripts/build-client.mjs",
+    "check": "node scripts/check.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "node e2e/run.mjs",
+    "verify": "pnpm build:client && pnpm check && pnpm test && pnpm test:e2e",
+    "lint:agentmap": "python3 tools/agentmap_lint.py --report",
+    "lint": "pnpm lint:agentmap"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.62.1",
+    "@deepseek-ai/dsh": "0.2.0-rc.2"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "pdf",
+    "session-export"
+  ],
+  "license": "MIT"
+}

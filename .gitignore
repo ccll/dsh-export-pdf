@@ -1,5 +1,4 @@
 node_modules/
-.dsh-plugin/
 .staging/
 .cache/
 .chrome-debug*/

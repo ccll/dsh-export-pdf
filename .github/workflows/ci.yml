@@ -25,3 +25,36 @@ jobs:
 
       - name: AgentMap document lint
         run: python3 tools/agentmap_lint.py --report
+
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install CJK fonts
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+
+      - name: Verify browser and fonts
+        run: google-chrome --version && fc-list :lang=zh | head -1
+
+      - name: Build and contract check
+        run: pnpm build:client && pnpm check
+
+      - name: Unit and PDF integration tests
+        run: pnpm test
+
+      - name: Browser e2e
+        run: pnpm test:e2e

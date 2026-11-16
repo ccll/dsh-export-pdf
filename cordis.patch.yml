@@ -1,0 +1,6 @@
+# Mount the PDF export plugin as its own bundle. The host half registers the
+# authenticated /api/session.pdf route; the browser half registers the PDF
+# conversation view.
+- insert:
+    - id: export-pdf
+      name: dsh-export-pdf

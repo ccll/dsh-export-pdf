@@ -45,7 +45,7 @@ owner: agent 主笔，项目属主审批
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
 | 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
-| 现状差距已有 task 承接 | 通过 | 新仓库无实现，T-001 承接全部需求 |
+| 现状差距已有 task 承接 | 通过 | T-001 承接全部需求（active） |
 | 可派生验证 | 通过 | SOLUTION.md#产品契约 |
 
 ## 静态架构
@@ -190,18 +190,23 @@ flowchart LR
 | 参数 `disposition` | 可选，`inline` 或 `attachment`，缺省 `inline` |
 | 成功响应 | `200`，`Content-Type: application/pdf`，`Content-Disposition` 取 `disposition` |
 | 参数缺失或非法 | `400`，纯文本说明 |
-| 会话不存在 | `404`，纯文本说明 |
+| 会话不存在或日志不可读 | `404`，纯文本说明 |
+| 子会话（`origin` 为 `subagent`） | `400`，纯文本说明；对应非目标 NG-6 的请求侧强制 |
+| 折叠后无可导出的转录内容 | `204`，无正文，`Cache-Control: no-store`；不启动浏览器渲染 |
 | 渲染失败 | `500`，纯文本说明 |
 | 无可用浏览器或缺少中文字体 | `503`，纯文本说明 |
+| 错误机器码 | 所有错误响应带 `x-dsh-export-error`，取值为 `request`、`session`、`subagent`、`font`、`browser`、`render`、`internal` 之一 |
 
-- 文件名固定为 `dsh-session-<会话标识前 8 位>.pdf`。
-- `HEAD` 与 `GET` 的校验、状态码与响应头一致，只是不返回正文。
+- 文件名固定为 `dsh-session-<会话标识前 8 位>.pdf`；会话标识带 `session-` 公共前缀时先去掉前缀再取 8 位，否则不同会话会得到同一个文件名。
+- `HEAD` 与 `GET` 的校验、状态码与响应头一致，只是不返回正文；浏览器半区用 `x-dsh-export-error` 把无正文的失败映射成具体中文原因。
 - 同一会话的并发请求合并到一次渲染，所有请求拿到同一份字节。
 
 ## 核心数据与不变量
 
 - 转录条目按会话日志的序号升序排列，顺序不可重排。
 - 只折叠四类条目：用户消息、助手回复、工具调用、思考块。
+- 用户消息只取 `source.kind` 为 `user` 的真人输入；运行上下文、技能目录、时间提示等内部注入不进入 PDF，否则导出会夹带整份 Agent 指令。旧格式日志没有 `source` 字段时按真人输入处理，避免历史会话导出为空。
+- 折叠后没有任何条目时按“无可导出内容”处理，以 `204` 结束。
 - 工具调用渲染为单行，内容为工具名与参数摘要。
 - 思考块在折叠阶段丢弃，不进入 PDF。
 - 子会话的事件不读取、不渲染。
@@ -221,6 +226,8 @@ flowchart LR
 - 渲染超时取配置值，超时终止子进程并以 `500` 结束，缓存不留半成品。
 - 浏览器可执行文件缺失时立即以 `503` 结束，不启动子进程。
 - 宿主缺少可用的中文字体时立即以 `503` 结束，并说明缺少中文字体。
+- 折叠结果为空时以 `204` 结束，不启动浏览器，也不写临时文件。
+- 子会话标识在读取日志前即被拒绝，以 `400` 结束，不读取该会话日志。
 - 子进程以非零码退出时取其标准错误的前若干行作为失败说明，写入宿主日志，响应只给简要原因。
 - 临时 HTML 与 PDF 文件写在系统临时目录，用尽即删，异常路径同样删除。
 - 并发渲染数受配置上限约束，超出时排队而非并行启动多个浏览器进程。
@@ -229,7 +236,7 @@ flowchart LR
 
 - 会话查询服务：经 `ctx.sessionQuery` 读取会话日志，会话不存在时抛 `SESSION_QUERY_SESSION_NOT_FOUND`。
 - 本机浏览器：按配置路径或 PATH 探测名称列表，启动无头模式打印 HTML。
-- 本机字体：探测中文字体是否可用，缺失时拒绝导出而不是输出缺字 PDF。
+- 本机字体：探测中文字体是否可用，缺失时拒绝导出而不是输出缺字 PDF。Linux 先执行 `fc-list :lang=zh`，没有 fontconfig 时扫描系统字体目录；探测结果缓存在宿主进程内。
 - 宿主的连接服务：经 `ctx.connection.fetch.register` 注册精确路由，鉴权由该桥提供。
 
 ## 配置与可变点
@@ -261,14 +268,14 @@ flowchart LR
 
 | 需求 | 主责子系统 | 方案落点 | 实现位置 |
 |---|---|---|---|
-| R-01-001 | 会话导出 | SOLUTION.md#产品契约 | src/client/index.tsx |
-| R-01-002 | 会话导出 | SOLUTION.md#运行时交互图 | src/client/index.tsx |
-| R-01-003 | 会话导出 | SOLUTION.md#产品契约 | src/client/index.tsx |
-| R-01-004 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/transcript.ts |
-| R-01-005 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.ts |
-| R-01-006 | 会话导出 | SOLUTION.md#运行时与失败语义 | src/host.ts |
-| R-01-007 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/transcript.ts |
-| R-01-008 | 会话导出 | SOLUTION.md#安全与信任边界 | src/host.ts |
+| R-01-001 | 会话导出 | SOLUTION.md#产品契约 | src/view.mjs |
+| R-01-002 | 会话导出 | SOLUTION.md#运行时交互图 | src/view.mjs |
+| R-01-003 | 会话导出 | SOLUTION.md#产品契约 | src/view.mjs |
+| R-01-004 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/transcript.mjs |
+| R-01-005 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.mjs |
+| R-01-006 | 会话导出 | SOLUTION.md#运行时与失败语义 | src/exporter.mjs, src/chrome.mjs, src/fonts.mjs |
+| R-01-007 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/transcript.mjs, src/exporter.mjs |
+| R-01-008 | 会话导出 | SOLUTION.md#安全与信任边界 | src/route.mjs, src/host.mjs |
 
 ## 子系统与模块
 
@@ -279,12 +286,13 @@ flowchart LR
   - 浏览器半区注册一个 `conversation.view` 条目，承担预览与下载交互。
   - 转录折叠与 HTML 渲染是纯函数，仅依赖会话事件与配置。
   - 浏览器进程按需启动，一次渲染一个进程，结束即回收。
-- 代码位置: src/index.ts, src/client/index.tsx
+- 代码位置: src/host.mjs, src/view.mjs
 - 实现: 双端
 
 ## 横切约束
 
 - 不引入运行时 npm 依赖，PDF 生成只借助本机浏览器可执行文件。
+- 源码是不需编译的纯 ESM；浏览器半区由 `scripts/build-client.mjs` 拼装成宿主模块系统要求的 `window.__ModuleLoader__.load(...)` 工厂脚本。
 - 视图条目使用固定标签 `PDF`，不注册其它插槽。
 - 所有失败转成页内提示，不向宿主抛出未处理异常。
 - 临时文件与子进程在成功、失败、取消三条路径上都回收。
