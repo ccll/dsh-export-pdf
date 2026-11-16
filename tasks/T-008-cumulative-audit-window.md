@@ -6,7 +6,7 @@ id: T-008
 
 # T-008 累计审计——窗口 30ccac2..2ac29fe
 
-状态: active
+状态: completed
 类型: 累计审计
 风险等级: 免风险分级（累计审计 task 免分级，证据规格按 major 写死）
 风险面: 无（只读审计，不改代码与 map；发现按严重度登记）
@@ -64,4 +64,12 @@ id: T-008
 
 ## 终态与证据
 
-关闭时填写实现、测试、SOLUTION 对照、commit 与完整 review 三标签；并更新 CONVENTIONS 复位点。
+- 实现: 独立子代理对窗口 `30ccac2..2ac29fe`（4 笔、语义行 951）做 Spec/Standards 双轴审计；无 blocking。**non-blocking 4 条**——README 使用段仍称两个复选框与旧后缀、PDF 越界用例用 80×40 图配 595pt 整页上限、T-008 初稿窗口口径 4 笔/939 与 lint 951 不符、CONVENTIONS 复位注释把 1264 行窗口终点写成 30ccac2——已在 `5e1ca06` 全部处置并登记审计更正 E1–E4。两轴另列残余风险：mock e2e 不产生图片、嵌入无独立字节上限、attachments 必需注入使单图回退在服务整体缺失时不可达。
+- 测试: `pnpm verify` 通过——`pnpm test` 66 通过（含真实 Chrome 图片三态与 800×400 图版心宽度断言）；`pnpm test:e2e` 两套通过（含图片下拉默认占位、embed/none 地址与文件名、预览下载同字节）；`pnpm check` 通过。
+- SOLUTION 对照: 窗口内 R-01-011 修订与 R-01-012 的默认占位、文件/图片独立、附件读取回退、缓存与文件名契约均与 SOLUTION 产品契约/不变量一致；DOMAIN 附件占位已收敛为只指文件；未发现残留差异。T-007 的完成标记与 M-007/R-01-012 勾选由 T-007 收尾提交完成。
+- commit: 5e1ca06
+- review:
+  - 审核方: 累计审计独立子代理（Spec 56157fdd / Standards dccf5688）
+  - 目的理解: 对 T-006 复位点后的 4 笔跨改动做双轴审计，核验 T-005/T-006 收尾、T-007 图片三态实现与复审修复是否兑现 PRD/SOLUTION/DOMAIN，核对 AC 锚点、证据结构与 README/门禁口径，判断能否复位累计审计点。
+  - 问题与修复: 无 blocking。non-blocking 4 条全部修复：README 英中同步图片三态、文件附件独立与 `-images/-no-images`；PDF 用 800×400 图并断言不超过 505pt 版心；T-008 口径改为 `30ccac2..2ac29fe` 4 笔/951 并登记 E1；CONVENTIONS 注释区分窗口终点 a538649 与复位提交 30ccac2（E4）。残余风险见上。
+  - 复审结论: Spec 轴与 Standards 轴均判定窗口可复位、无 blocking；残余风险不阻断复位。
