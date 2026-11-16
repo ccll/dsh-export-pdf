@@ -16,6 +16,12 @@ export function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (character) => HTML_ESCAPES[character])
 }
 
+const USER_ICON =
+  '<svg class="avatar" data-role-icon="user" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="5" r="2.6" fill="currentColor"/><path d="M2.8 14.2c0-2.9 2.3-4.8 5.2-4.8s5.2 1.9 5.2 4.8" fill="currentColor"/></svg>'
+
+const ASSISTANT_ICON =
+  '<svg class="avatar" data-role-icon="assistant" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 2.2v3" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="2" r="1.1" fill="currentColor"/><rect x="2.8" y="5.2" width="10.4" height="8" rx="2.2" fill="currentColor"/><circle cx="6.2" cy="9" r="1" fill="#ffffff"/><circle cx="9.8" cy="9" r="1" fill="#ffffff"/></svg>'
+
 /**
  * 页面样式：A4、固定页边距、中文无衬线字体栈、长串强制断行、无页眉页脚。
  * 不给消息块加 `break-inside: avoid`，让跨页消息按 A4 自然续排。
@@ -36,8 +42,10 @@ main { display: block; }
 .entry:last-child { margin-bottom: 0; }
 .entry.user { width: fit-content; max-width: 82%; margin-left: auto; }
 .entry.assistant { width: fit-content; max-width: 82%; margin-right: auto; }
-.role { break-after: avoid; color: #6b6b6b; font-size: 8.5pt; font-weight: 600; letter-spacing: 0.12em; margin: 0 0 1.2mm; }
-.entry.user .role { color: #4f6f9f; text-align: right; }
+.role { align-items: center; break-after: avoid; color: #6b6b6b; display: flex; font-size: 8.5pt; font-weight: 600; gap: 1.4mm; letter-spacing: 0.12em; margin: 0 0 1.2mm; }
+.entry.user .role { color: #4f6f9f; justify-content: flex-end; }
+.entry.assistant .role { justify-content: flex-start; }
+.avatar { flex: none; height: 3.4mm; width: 3.4mm; }
 .body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .entry.user .body {
   background: #eef3fb;
@@ -71,11 +79,11 @@ export function renderTranscriptHtml(entries) {
   for (const entry of entries) {
     if (entry.kind === 'user') {
       blocks.push(
-        `<section class="entry user"><div class="role">用户</div><div class="body">${escapeHtml(entry.text)}</div></section>`,
+        `<section class="entry user"><div class="role"><span>用户</span>${USER_ICON}</div><div class="body">${escapeHtml(entry.text)}</div></section>`,
       )
     } else if (entry.kind === 'assistant') {
       blocks.push(
-        `<section class="entry assistant"><div class="role">助手</div><div class="body">${escapeHtml(entry.text)}</div></section>`,
+        `<section class="entry assistant"><div class="role">${ASSISTANT_ICON}<span>助手</span></div><div class="body">${escapeHtml(entry.text)}</div></section>`,
       )
     } else if (entry.kind === 'tool') {
       const args = entry.summary === undefined || entry.summary === '' ? '' : ` <span class="tool-args">${escapeHtml(entry.summary)}</span>`

@@ -27,7 +27,7 @@ The repository ships the built browser bundle (`.dsh-plugin/client.js`), so inst
 
 Open a session and select the **PDF** page next to Chat and Trajectory. The page generates the PDF once, shows it in the browser's PDF viewer, and enables **Download PDF**. The downloaded file is `dsh-session-<first 8 characters of the session id>.pdf`; the `session-` prefix is removed before slicing so different sessions do not collide.
 
-The page includes user messages and assistant replies in log order, one summary line per tool call, and no thinking blocks or internal runtime-context injections. User messages are right-aligned in light bubbles; assistant replies stay left-aligned, so the two sides remain easy to scan in long exports. A session with no renderable transcript shows an empty-state notice instead of starting a browser render.
+The page includes user messages and assistant replies in log order, one summary line per tool call, and no thinking blocks or internal runtime-context injections. User messages are right-aligned in light bubbles with a small person icon; assistant replies stay left-aligned with a small robot icon, so the two sides remain easy to scan in long exports. A session with no renderable transcript shows an empty-state notice instead of starting a browser render.
 
 ## Configuration
 

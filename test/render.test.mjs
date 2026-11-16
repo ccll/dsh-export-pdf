@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-02
+// 测试锚点: R-01-005/AC-02 R-01-010/AC-01 R-01-010/AC-02
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { PAGE_STYLE, escapeHtml, renderTranscriptHtml } from '../src/render.mjs'
@@ -35,6 +35,22 @@ test('页面样式固定 A4、中文可读、无页眉页脚与页码规则', ()
   assert.ok(!html.includes('file://'))
   assert.ok(!html.includes('dsh-session-'))
   assert.ok(!html.includes('页码'))
+})
+
+test('用户与助手角色标签各带一个内联 SVG 图标', () => {
+  const html = renderTranscriptHtml([
+    { kind: 'user', text: '用户消息' },
+    { kind: 'assistant', text: '助手回复' },
+    { kind: 'tool', name: 'bash', summary: 'command=echo probe' },
+  ])
+  const userSection = /<section class="entry user">([\s\S]*?)<\/section>/.exec(html)?.[1] ?? ''
+  const assistantSection = /<section class="entry assistant">([\s\S]*?)<\/section>/.exec(html)?.[1] ?? ''
+  assert.match(userSection, /data-role-icon="user"/)
+  assert.match(userSection, /<span>用户<\/span>/)
+  assert.match(assistantSection, /data-role-icon="assistant"/)
+  assert.match(assistantSection, /<span>助手<\/span>/)
+  assert.equal((html.match(/data-role-icon=/g) ?? []).length, 2, '每条消息只带一个角色图标')
+  assert.doesNotMatch(html, /<img|https?:\/\//, '图标不得依赖位图或外部资源')
 })
 
 test('空条目渲染出空正文文档而不是报错', () => {
