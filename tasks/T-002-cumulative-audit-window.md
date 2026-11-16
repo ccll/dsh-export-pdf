@@ -6,7 +6,7 @@ id: T-002
 
 # T-002 累计审计——窗口 dbf914b..0a24638
 
-状态: active
+状态: completed
 类型: 累计审计
 风险等级: 免风险分级（累计审计 task 免分级，证据规格按 major 写死）
 风险面: 无（只读审计，不改代码与 map；发现按严重度登记）
@@ -56,8 +56,21 @@ id: T-002
 
 ## 审计更正
 
-关闭时填写失实条目；无失实则写「无」。
+- E1 窗口与语义行：初稿写 `dbf914b..a5ae53b`/8 笔/2889 行；实测该区间 7 笔/3024 行，至 `0a24638` 为 8 笔/3069 行。本 task 已更正为 `dbf914b..0a24638`/3069，并注明 405 处置 `7074ef7` 越窗。
+- E2 R-01-001/AC-03：初稿只有“空态不请求”与 `initialViewState` 断言，未证明空态文案渲染；已新增 `viewNoticeText` 单测（`test/view-state.test.mjs`），AC 按 C-003 限定为宿主渲染该页时成立。
+- E3 `pdf-failure.mjs`：初稿锚 R-01-006/AC-01、AC-02 却只测浏览器 503；已补 404/500 页内断言，真实服务端状态码仍由 route 单测覆盖。
+- E4 T-001 矩阵：兼容性行曾把 HEAD/GET 一致性锚到 R-01-006/AC-02；已改指 `test/route.test.mjs::HEAD 与 GET 状态码和响应头一致`，异常行保留 AC-02。
+- E5 405：SOLUTION 曾承诺“其它方法 405”，宿主只转发 GET/HEAD；已在 7074ef7 撤回契约，handler 防御分支保留并标注不可观测。
+- E6 提交告警：6e2aeed/db5da9d 的 `review:` 缺失是 lint 对 README/LICENSE/CI 的启发式告警，正文与当时状态相符，不登记为证据失实。
 
 ## 终态与证据
 
-关闭时填写实现、测试、SOLUTION 对照、commit 与独立 review 证据。
+- 实现: 独立子代理对窗口 `dbf914b..0a24638`（8 笔）做 Spec/Standards 双轴审计；两轴共 5 条 blocking——窗口口径、子会话契约漏 delegationDepth、AC-03 空态文案、pdf-failure AC 错配、T-002 矩阵不可执行——均已在 `aa240d2` 处置；非阻塞 204 空文件、idle 死分支、权威入口、poppler fail-closed、超时/垃圾产物也一并修复。
+- 测试: `pnpm check` 通过；`pnpm test` 47 通过（含真实 Chrome 的 A4/中文/分页测试与假浏览器超时/坏产物测试）；`pnpm test:e2e` 两套通过（含 404/500 页内、401/403、日志字节不变）；复位后 `scripts/verify.sh` 作为权威入口复跑。
+- SOLUTION 对照: 审计未发现残留差异；C-003 空态条件、C-004 归属边界、子会话 `origin`/`delegationDepth`、GET/HEAD 契约、sessionId 字符集、browserPath 请求期 503、CI 安装 poppler 均与实现一致；405 已撤回不可观测承诺。
+- commit: 0a24638
+- review:
+  - 审核方: 累计审计独立子代理（Spec 824daa11 / Standards bbfcef64）
+  - 目的理解: 对窗口 8 笔提交做跨改动双轴审计，核验 PRD/SOLUTION 承诺、23 条 AC 锚点、T-001/T-002 证据与 CI/README 口径，判断能否复位累计审计点。
+  - 问题与修复: blocking 5 条全部修复（T-002 窗口 0a24638/3069、SOLUTION delegationDepth、viewNoticeText 空态单测、pdf-failure 404/500、T-002 矩阵改可执行锚点）；non-blocking 6 条已处置（204 下载、idle 分支、verify 入口、CI fail-closed、词框边界、事件顺序措辞），405 契约已在 7074ef7 撤回。
+  - 复审结论: 双轴 blocking 清零，窗口可复位；残留风险为超大日志未限时、缓存无字节上限、HEAD 后 iframe GET 失败无页内回落，均不阻断复位。
