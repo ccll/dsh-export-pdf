@@ -95,6 +95,7 @@ git config core.hooksPath .githooks
 | M-001 PDF view page | view page, in-page preview, download | delivered by T-001 |
 | M-002 Transcript fidelity | event ordering, Chinese text, pagination | delivered by T-001 |
 | M-003 Failure and boundaries | visible failures, read-only export, authenticated requests | delivered by T-001 |
+| M-004 Message layout | right-aligned user messages, left-aligned assistant replies | delivered by T-003 |
 
 ## License
 
