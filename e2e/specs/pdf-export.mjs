@@ -182,7 +182,7 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     if (checked) await box.check()
     else await box.uncheck()
     if (includeToken !== null) {
-      await page.waitForFunction(() => document.querySelector('.dxp-download')?.disabled === true, { timeout: 5_000 })
+      await page.waitForFunction(() => document.querySelector('.dxp-download')?.disabled === true, null, { timeout: 5_000 })
       assertEqual(await downloadButton.isDisabled(), true, `${includeToken} 生成中下载按钮不可用`)
     }
     assertEqual((await responsePromise).status(), 200, `${includeToken ?? 'default'} 预览请求成功`)
@@ -193,6 +193,16 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     await until('下载按钮可用', async () => downloadButton.isEnabled().catch(() => false), 20_000)
     const [selectedDownload] = await Promise.all([page.waitForEvent('download'), downloadButton.click()])
     assertEqual(selectedDownload.suggestedFilename(), expectedPdfPrefix(sessionId, filenameSuffix))
+    const selectedDirectory = await mkdtemp(join(tmpdir(), 'dsh-pdf-e2e-selection-'))
+    try {
+      const selectedPath = join(selectedDirectory, selectedDownload.suggestedFilename())
+      await selectedDownload.saveAs(selectedPath)
+      const previewBytes = await (await page.request.get(selectedSource)).body()
+      const downloadBytes = await readFile(selectedPath)
+      assertEqual(Buffer.compare(previewBytes, downloadBytes), 0, `${includeToken ?? 'default'} 预览与下载同字节`)
+    } finally {
+      await rm(selectedDirectory, { recursive: true, force: true })
+    }
   }
 
   await setSelection(toolsBox, true, 'tools', '-tools')
@@ -229,11 +239,12 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
 
   // R-01-001/AC-03：空会话不发起 PDF 生成请求。宿主在 blank 阶段隐藏视图区，
   // 因此这里断言“无请求”；空态渲染分支由 test/view-state.test.mjs 覆盖。
+  await page.waitForTimeout(500)
   const requestsBeforeBlank = pdfRequests.length
   await page.getByRole('button', { name: 'New Session' }).first().click()
   await page.waitForTimeout(1_500)
   const blankRequests = pdfRequests.slice(requestsBeforeBlank)
-  assertEqual(blankRequests.filter((request) => request.method === 'HEAD').length, 0, '空会话不发起导出请求')
+  assertEqual(blankRequests.length, 0, '空会话不发起导出请求')
 
   assertEqual(consoleErrors.join('\n'), '', '插件不产生控制台错误或未捕获异常')
 }

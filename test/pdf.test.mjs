@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-02
+// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -142,6 +142,71 @@ test('真实浏览器打印：A4、多页、中文字形与转录内容正确', 
     // 第一页正文应从用户消息开始，而不是 Chrome 默认页眉的日期。
     assert.ok(firstPage.includes('中文导出探针'), '第一页包含用户消息')
     assert.ok(!/^\s*\d{1,2}\/\d{1,2}\/\d{2}/.test(firstPage), '第一页不得出现 Chrome 默认页眉日期')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('真实浏览器打印：默认最简与内容选择组合', { timeout: 120_000 }, async (context) => {
+  const browserPath = await resolveBrowserPath('').catch(() => undefined)
+  const skip = (reason) => {
+    if (process.env.CI) assert.fail(reason)
+    context.skip(reason)
+  }
+  if (browserPath === undefined) {
+    skip('宿主没有可用的 Chrome/Chromium')
+    return
+  }
+  if (!(await detectCjkFont())) {
+    skip('宿主没有可用的中文字体')
+    return
+  }
+  if (!hasCommand('pdftotext')) {
+    skip('宿主缺少 pdftotext')
+    return
+  }
+
+  const events = [
+    {
+      type: 'user/message',
+      seq: 1,
+      time: 1,
+      data: {
+        source: { kind: 'user' },
+        content: [
+          { type: 'text', text: '默认最简用户消息' },
+          { type: 'file', attachment: { name: '报告.pdf' } },
+        ],
+      },
+    },
+    {
+      type: 'assistant/message',
+      seq: 2,
+      time: 2,
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: '默认最简助手回复' }] } },
+    },
+    { type: 'tool/call', seq: 3, time: 3, data: { name: 'bash', arguments: '{"command":"echo tool-only"}' } },
+  ]
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-pdf-selection-'))
+  try {
+    for (const [label, include, expected, forbidden] of [
+      ['默认最简', [], ['默认最简用户消息', '默认最简助手回复'], ['工具调用', '报告.pdf']],
+      ['tools', ['tools'], ['默认最简用户消息', '工具调用', 'tool-only'], ['报告.pdf']],
+      ['attachments', ['attachments'], ['默认最简用户消息', '[附件: 报告.pdf]'], ['工具调用']],
+      ['both', ['tools', 'attachments'], ['默认最简用户消息', '[附件: 报告.pdf]', '工具调用', 'tool-only'], []],
+    ]) {
+      const bytes = await renderPdfWithBrowser({
+        html: renderTranscriptHtml(foldTranscript(events, { include })),
+        browserPath,
+        timeoutMs: 60_000,
+      })
+      assert.ok(bytes.byteLength > 500, `${label} PDF 非空`)
+      const pdfPath = join(directory, `${label}.pdf`)
+      await writeFile(pdfPath, bytes)
+      const text = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' })
+      for (const needle of expected) assert.ok(text.includes(needle), `${label} 应包含 ${needle}`)
+      for (const needle of forbidden) assert.ok(!text.includes(needle), `${label} 不应包含 ${needle}`)
+    }
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

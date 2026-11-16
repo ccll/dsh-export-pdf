@@ -1,6 +1,8 @@
+import { normalizeInclude } from './selection.mjs'
+
 /** 视图页固定文案。 */
 export const EMPTY_TEXT = '该会话还没有消息，暂无可导出的内容。'
-export const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容，可勾选工具调用摘要或附件占位后重试。'
+export const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容，可调整勾选后重试。'
 export const GENERATING_TEXT = '正在生成 PDF…'
 export const READY_TEXT = '预览已就绪'
 export const DOWNLOAD_TEXT = '下载 PDF'
@@ -31,7 +33,7 @@ const ERROR_MESSAGES = {
 export function pdfRouteUrl(sessionId, options = {}) {
   const base = options.base ?? document.baseURI
   const disposition = options.disposition ?? 'inline'
-  const include = Array.isArray(options.include) ? ['tools', 'attachments'].filter((token) => options.include.includes(token)) : []
+  const include = normalizeInclude(options.include)
   const includeQuery = include.length === 0 ? '' : `&include=${encodeURIComponent(include.join(','))}`
   return new URL(
     `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}${includeQuery}`,

@@ -1,8 +1,8 @@
+import { normalizeInclude } from './selection.mjs'
+
 /** 工具调用参数摘要的最大字符数。 */
 export const TOOL_ARGUMENT_SUMMARY_MAX = 160
 const TOOL_ARGUMENT_VALUE_MAX = 60
-/** 导出内容选择的合法 token；顺序即缺省归一顺序。 */
-export const INCLUDE_TOKENS = ['tools', 'attachments']
 
 /**
  * 判断一条 user/message 是否真人输入。当前日志以 `source.kind === 'user'`
@@ -16,16 +16,6 @@ export function isHumanUserMessage(event) {
   const source = event.data?.source
   if (source === undefined || source === null) return true
   return source.kind === 'user'
-}
-
-/**
- * 把合法 token 归一为固定顺序，丢弃未知值；路由负责在边界上报错。
- * @param {unknown} value 原始选择（数组）
- * @returns {string[]}
- */
-export function normalizeInclude(value) {
-  const selected = Array.isArray(value) ? value : []
-  return INCLUDE_TOKENS.filter((token) => selected.includes(token))
 }
 
 /**

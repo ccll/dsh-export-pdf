@@ -4,7 +4,7 @@
 /** 视图页样式；宿主模块系统不提供 CSS 构建，自注入一条 scoped 规则。 */
 export const VIEW_STYLE = `
 .dxp-root { box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 420px; padding: 12px 16px 16px; color: var(--dsw-alias-label-primary, #161616); }
-.dxp-head { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 12px; justify-content: space-between; position: relative; z-index: 1; }
+.dxp-head { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 12px; justify-content: space-between; /* 宿主分栏把手覆盖页头命中区，抬高页头让复选框可点。 */ position: relative; z-index: 1; }
 .dxp-title { align-items: baseline; display: flex; gap: 8px; min-width: 0; }
 .dxp-title strong { font-size: 14px; font-weight: 600; }
 .dxp-status { color: var(--dsw-alias-label-caption, #6b6b6b); font-size: 12px; }
@@ -29,10 +29,7 @@ export const VIEW_STYLE = `
 const DEFAULT_OPTIONS = { attachments: false, tools: false }
 
 function includeFromOptions(options) {
-  const include = []
-  if (options.tools) include.push('tools')
-  if (options.attachments) include.push('attachments')
-  return include
+  return INCLUDE_TOKENS.filter((token) => options[token] === true)
 }
 
 /**
@@ -84,7 +81,8 @@ export function PdfView(props) {
     if (state.kind !== 'ready' || state.sessionId !== sessionId || state.includeKey !== includeKey) return
     setDownload({ kind: 'loading' })
     try {
-      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include }), { credentials: 'same-origin' })
+      const selectedInclude = includeKey === '' ? [] : includeKey.split(',')
+      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude }), { credentials: 'same-origin' })
       if (response.status === 204) {
         setDownload({ kind: 'error', message: FILTERED_EMPTY_TEXT })
         return
@@ -107,7 +105,7 @@ export function PdfView(props) {
     } catch {
       setDownload({ kind: 'error', message: NETWORK_ERROR_TEXT })
     }
-  }, [state, sessionId, includeKey, include])
+  }, [state, sessionId, includeKey])
 
   const ready = state.kind === 'ready' && state.sessionId === sessionId && state.includeKey === includeKey
   const statusText = state.kind === 'error' ? '导出失败' : state.kind === 'empty' ? '' : ready ? READY_TEXT : GENERATING_TEXT

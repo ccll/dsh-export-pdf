@@ -188,7 +188,7 @@ flowchart LR
 | 方法与路径 | `GET /api/session.pdf`、`HEAD /api/session.pdf` |
 | 参数 `sessionId` | 必填，会话标识；只接受 ASCII 字母、数字与 `.`、`_`、`:`、`-`，长度不超过 200 |
 | 参数 `disposition` | 可选，`inline` 或 `attachment`，缺省 `inline` |
-| 参数 `include` | 可选，逗号分隔的 `tools`、`attachments`；缺省为空，表示只导出消息文本；顺序归一，重复或未知值 `400` |
+| 参数 `include` | 可选，逗号分隔的 `tools`、`attachments`；缺省或空串表示只导出消息文本；顺序归一，重复或未知值 `400` |
 | 成功响应 | `200`，`Content-Type: application/pdf`，`Content-Disposition` 取 `disposition` 与带选择后缀的文件名 |
 | 参数缺失或非法 | `400`，纯文本说明 |
 | 会话不存在或日志不可读 | `404`，纯文本说明 |
@@ -283,7 +283,7 @@ flowchart LR
 | R-01-008 | 会话导出 | SOLUTION.md#安全与信任边界 | src/route.mjs, src/host.mjs |
 | R-01-009 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.mjs |
 | R-01-010 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.mjs |
-| R-01-011 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/transcript.mjs, src/exporter.mjs, src/route.mjs, src/view.mjs |
+| R-01-011 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/selection.mjs, src/transcript.mjs, src/exporter.mjs, src/route.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs |
 
 ## 子系统与模块
 
@@ -294,7 +294,7 @@ flowchart LR
   - 浏览器半区注册一个 `conversation.view` 条目，承担预览、内容选择与下载交互；选择变化会取消旧请求并按新选择重取。
   - 转录折叠与 HTML 渲染是纯函数，仅依赖会话事件与配置。
   - 浏览器进程按需启动，一次渲染一个进程，结束即回收。
-- 代码位置: src/host.mjs, src/route.mjs, src/exporter.mjs, src/view.mjs, src/client.mjs
+- 代码位置: src/selection.mjs, src/host.mjs, src/route.mjs, src/exporter.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs, src/client.mjs
 - 实现: 双端
 
 ## 横切约束

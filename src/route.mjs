@@ -7,7 +7,7 @@ import {
   SubagentExportError,
 } from './errors.mjs'
 import { pdfFilename } from './naming.mjs'
-import { INCLUDE_TOKENS, normalizeInclude } from './transcript.mjs'
+import { INCLUDE_TOKENS, normalizeInclude } from './selection.mjs'
 
 /** 导出路由在 Connection `/api` 通道下的绝对路径。 */
 export const SESSION_PDF_PATH = '/api/session.pdf'
@@ -20,7 +20,7 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]+$/
  * 处理一次导出请求。参数校验、状态码、响应头与 HEAD 语义集中在这里，
  * 不把日志内容、stderr 或宿主路径回给浏览器。
  * @param {Request} request Fetch 请求（已过宿主的 Host/Origin 与浏览器鉴权栅栏）
- * @param {{ exportSession: (sessionId: string) => Promise<{ kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' }> }} exporter 导出编排器
+ * @param {{ exportSession: (sessionId: string, include?: readonly string[]) => Promise<{ kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' }> }} exporter 导出编排器
  * @param {{ logError?: (message: string, error: unknown) => void }} [options]
  * @returns {Promise<Response>}
  */
@@ -42,7 +42,7 @@ export async function handlePdfRequest(request, exporter, options = {}) {
   }
   const include = parseInclude(url.searchParams.getAll('include'))
   if (include === null) {
-    return textResponse(400, 'include 只能包含 tools 与 attachments，且不得重复', method, { code: 'request' })
+    return textResponse(400, `include 只能包含 ${INCLUDE_TOKENS.join(' 与 ')}，且不得重复`, method, { code: 'request' })
   }
 
   let result
@@ -76,7 +76,6 @@ function parseInclude(values) {
   const raw = values[0]
   if (raw === '') return []
   const tokens = raw.split(',')
-  if (tokens.length === 0) return null
   if (tokens.some((token) => !INCLUDE_TOKENS.includes(token))) return null
   if (new Set(tokens).size !== tokens.length) return null
   return normalizeInclude(tokens)

@@ -95,6 +95,13 @@ test('include 选择归一、文件名后缀与非法值 400', async () => {
   )
   assert.equal(toolsOnly.headers.get('content-disposition'), 'inline; filename="dsh-session-1b9b2ef9-tools.pdf"')
 
+  const emptyInclude = await handlePdfRequest(
+    request(`?sessionId=${SESSION_ID}&include=`),
+    exporterReturning({ kind: 'pdf', bytes: PDF }),
+  )
+  assert.equal(emptyInclude.status, 200, 'include= 空串等同缺省选择')
+  assert.equal(emptyInclude.headers.get('content-disposition'), 'inline; filename="dsh-session-1b9b2ef9.pdf"')
+
   for (const include of ['unknown', 'tools,tools', 'tools,', 'tools&include=attachments']) {
     const invalid = await handlePdfRequest(
       request(`?sessionId=${SESSION_ID}&include=${encodeURIComponent(include)}`),

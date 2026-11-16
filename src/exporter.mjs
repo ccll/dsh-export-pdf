@@ -1,4 +1,5 @@
-import { foldTranscript, normalizeInclude } from './transcript.mjs'
+import { foldTranscript } from './transcript.mjs'
+import { normalizeInclude } from './selection.mjs'
 import { renderTranscriptHtml } from './render.mjs'
 import { FontUnavailableError, SessionUnavailableError, SubagentExportError } from './errors.mjs'
 
@@ -127,8 +128,8 @@ export function createExporter(dependencies) {
 }
 
 /**
- * 缓存与单飞键：会话标识与归一选择的组合。选择为空时保留旧格式的
- * `sessionId\u0000` 前缀，避免与只靠会话标识的旧缓存混淆。
+ * 缓存与单飞键：会话标识与归一选择用 NUL 分隔，避免与标识字符冲突。
+ * 选择为空时键仍带分隔符，保证默认选择只有一种表示。
  * @param {string} sessionId 会话标识
  * @param {readonly string[]} include 归一后的选择
  */

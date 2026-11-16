@@ -5,6 +5,32 @@ window.__ModuleLoader__.load({
     var module = { exports: {} };
     var exports = module.exports;
     const React = require("react");
+/** 导出内容选择的唯一 token 顺序；新增内容类型只改这里。 */
+const INCLUDE_TOKENS = ['tools', 'attachments']
+
+/**
+ * 把合法 token 归一为固定顺序，丢弃未知值；路由负责在边界上报错。
+ * @param {unknown} value 原始选择（数组）
+ * @returns {string[]}
+ */
+function normalizeInclude(value) {
+  const selected = Array.isArray(value) ? value : []
+  return INCLUDE_TOKENS.filter((token) => selected.includes(token))
+}
+
+/**
+ * 文件名后缀：只有附加内容选择时追加，默认最简不加班。
+ * @param {unknown} value 原始选择（数组）
+ * @returns {string}
+ */
+function includeSuffix(value) {
+  const selected = normalizeInclude(value)
+  const tools = selected.includes('tools')
+  const attachments = selected.includes('attachments')
+  return tools && attachments ? '-tools-attachments' : tools ? '-tools' : attachments ? '-attachments' : ''
+}
+
+
 /**
  * 导出文件名固定为 `dsh-session-<会话标识前 8 位>.pdf`（SOLUTION#产品契约）。
  * 会话标识常带 `session-` 前缀；去掉该公共前缀后再取前 8 位，否则所有会话
@@ -18,16 +44,13 @@ function pdfFilename(sessionId, include = []) {
   const raw = String(sessionId)
   const identity = raw.startsWith('session-') ? raw.slice('session-'.length) : raw
   const prefix = identity === '' ? raw : identity
-  const selected = Array.isArray(include) ? include : []
-  const tools = selected.includes('tools')
-  const attachments = selected.includes('attachments')
-  const suffix = tools && attachments ? '-tools-attachments' : tools ? '-tools' : attachments ? '-attachments' : ''
-  return `dsh-session-${prefix.slice(0, 8)}${suffix}.pdf`
+  return `dsh-session-${prefix.slice(0, 8)}${includeSuffix(include)}.pdf`
 }
+
 
 /** 视图页固定文案。 */
 const EMPTY_TEXT = '该会话还没有消息，暂无可导出的内容。'
-const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容，可勾选工具调用摘要或附件占位后重试。'
+const FILTERED_EMPTY_TEXT = '当前选择下没有可导出的内容，可调整勾选后重试。'
 const GENERATING_TEXT = '正在生成 PDF…'
 const READY_TEXT = '预览已就绪'
 const DOWNLOAD_TEXT = '下载 PDF'
@@ -58,7 +81,7 @@ const ERROR_MESSAGES = {
 function pdfRouteUrl(sessionId, options = {}) {
   const base = options.base ?? document.baseURI
   const disposition = options.disposition ?? 'inline'
-  const include = Array.isArray(options.include) ? ['tools', 'attachments'].filter((token) => options.include.includes(token)) : []
+  const include = normalizeInclude(options.include)
   const includeQuery = include.length === 0 ? '' : `&include=${encodeURIComponent(include.join(','))}`
   return new URL(
     `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}${includeQuery}`,
@@ -134,7 +157,7 @@ function messageForStatus(status, body, code) {
 /** 视图页样式；宿主模块系统不提供 CSS 构建，自注入一条 scoped 规则。 */
 const VIEW_STYLE = `
 .dxp-root { box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 420px; padding: 12px 16px 16px; color: var(--dsw-alias-label-primary, #161616); }
-.dxp-head { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 12px; justify-content: space-between; position: relative; z-index: 1; }
+.dxp-head { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 12px; justify-content: space-between; /* 宿主分栏把手覆盖页头命中区，抬高页头让复选框可点。 */ position: relative; z-index: 1; }
 .dxp-title { align-items: baseline; display: flex; gap: 8px; min-width: 0; }
 .dxp-title strong { font-size: 14px; font-weight: 600; }
 .dxp-status { color: var(--dsw-alias-label-caption, #6b6b6b); font-size: 12px; }
@@ -159,10 +182,7 @@ const VIEW_STYLE = `
 const DEFAULT_OPTIONS = { attachments: false, tools: false }
 
 function includeFromOptions(options) {
-  const include = []
-  if (options.tools) include.push('tools')
-  if (options.attachments) include.push('attachments')
-  return include
+  return INCLUDE_TOKENS.filter((token) => options[token] === true)
 }
 
 /**
@@ -214,7 +234,8 @@ function PdfView(props) {
     if (state.kind !== 'ready' || state.sessionId !== sessionId || state.includeKey !== includeKey) return
     setDownload({ kind: 'loading' })
     try {
-      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include }), { credentials: 'same-origin' })
+      const selectedInclude = includeKey === '' ? [] : includeKey.split(',')
+      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude }), { credentials: 'same-origin' })
       if (response.status === 204) {
         setDownload({ kind: 'error', message: FILTERED_EMPTY_TEXT })
         return
@@ -237,7 +258,7 @@ function PdfView(props) {
     } catch {
       setDownload({ kind: 'error', message: NETWORK_ERROR_TEXT })
     }
-  }, [state, sessionId, includeKey, include])
+  }, [state, sessionId, includeKey])
 
   const ready = state.kind === 'ready' && state.sessionId === sessionId && state.includeKey === includeKey
   const statusText = state.kind === 'error' ? '导出失败' : state.kind === 'empty' ? '' : ready ? READY_TEXT : GENERATING_TEXT
