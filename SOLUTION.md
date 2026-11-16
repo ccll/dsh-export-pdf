@@ -185,8 +185,8 @@ flowchart LR
 
 | 项 | 值 |
 |---|---|
-| 方法与路径 | `GET /api/session.pdf`、`HEAD /api/session.pdf`；其它方法 `405`，`Allow: GET, HEAD` |
-| 参数 `sessionId` | 必填，会话标识 |
+| 方法与路径 | `GET /api/session.pdf`、`HEAD /api/session.pdf` |
+| 参数 `sessionId` | 必填，会话标识；只接受 ASCII 字母、数字与 `.`、`_`、`:`、`-`，长度不超过 200 |
 | 参数 `disposition` | 可选，`inline` 或 `attachment`，缺省 `inline` |
 | 成功响应 | `200`，`Content-Type: application/pdf`，`Content-Disposition` 取 `disposition` |
 | 参数缺失或非法 | `400`，纯文本说明 |

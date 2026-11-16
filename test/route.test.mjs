@@ -82,7 +82,7 @@ test('非法 disposition 返回 400', async () => {
   assert.match(await response.text(), /disposition/)
 })
 
-test('非 GET/HEAD 返回 405 与 Allow', async () => {
+test('handler 防御：非 GET/HEAD 返回 405 与 Allow（宿主当前不转发）', async () => {
   const response = await handlePdfRequest(request(`?sessionId=${SESSION_ID}`, 'POST'), exporterReturning({ kind: 'pdf', bytes: PDF }))
   assert.equal(response.status, 405)
   assert.equal(response.headers.get('allow'), 'GET, HEAD')
