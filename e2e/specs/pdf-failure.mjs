@@ -40,4 +40,45 @@ export default async function pdfFailure({ page, url, assert }) {
   await retry.click()
   assert.equal((await retryResponse).status(), 503, '重试仍返回 503')
   await until('重试后仍显示失败原因', async () => (await error.textContent()).includes('没有可用的浏览器'), 30_000)
+
+  // R-01-006/AC-01：会话不存在时，页内显示 404 原因且不交付文件。
+  // 这里拦截路由以稳定构造宿主侧失败；真实 404 由 test/route.test.mjs 覆盖。
+  await page.route('**/api/session.pdf*', async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: 'text/plain; charset=utf-8',
+      body: '会话不存在或日志不可读\n',
+      headers: { 'x-dsh-export-error': 'session' },
+    })
+  })
+  const missingResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/session.pdf') && response.request().method() === 'HEAD',
+    { timeout: 30_000 },
+  )
+  await retry.click()
+  assert.equal((await missingResponse).status(), 404, '会话缺失返回 404')
+  await until('404 原因显示', async () => (await error.textContent()).includes('会话不存在'), 30_000)
+  assert.equal(await page.locator('iframe[title="PDF 预览"]').count(), 0, '404 时不显示预览')
+  assert.equal(await download.isDisabled(), true, '404 时下载不可用')
+  await page.unroute('**/api/session.pdf*')
+
+  // R-01-006/AC-02：渲染失败时显示 500 原因，不产生预览或半份文件。
+  await page.route('**/api/session.pdf*', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'text/plain; charset=utf-8',
+      body: 'PDF 渲染失败\n',
+      headers: { 'x-dsh-export-error': 'render' },
+    })
+  })
+  const renderResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/session.pdf') && response.request().method() === 'HEAD',
+    { timeout: 30_000 },
+  )
+  await retry.click()
+  assert.equal((await renderResponse).status(), 500, '渲染失败返回 500')
+  await until('500 原因显示', async () => (await error.textContent()).includes('PDF 渲染失败'), 30_000)
+  assert.equal(await page.locator('iframe[title="PDF 预览"]').count(), 0, '500 时不显示预览')
+  assert.equal(await download.isDisabled(), true, '500 时下载不可用')
+  await page.unroute('**/api/session.pdf*')
 }

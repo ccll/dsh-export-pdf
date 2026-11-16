@@ -67,6 +67,10 @@ export function PdfView(props) {
     setDownload({ kind: 'loading' })
     try {
       const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment' }), { credentials: 'same-origin' })
+      if (response.status === 204) {
+        setDownload({ kind: 'error', message: EMPTY_TEXT })
+        return
+      }
       if (!response.ok) {
         const text = await response.text().catch(() => '')
         setDownload({ kind: 'error', message: messageForStatus(response.status, text) })
@@ -114,16 +118,16 @@ function renderBody(state, retry) {
   if (state.kind === 'ready') {
     return React.createElement('iframe', { className: 'dxp-frame', src: state.url, title: 'PDF 预览' })
   }
-  if (state.kind === 'loading' || state.kind === 'idle') {
+  if (state.kind === 'loading') {
     return React.createElement(
       'div',
       { className: 'dxp-notice' },
       React.createElement('div', { className: 'dxp-spinner', 'aria-hidden': 'true' }),
-      React.createElement('p', null, GENERATING_TEXT),
+      React.createElement('p', null, viewNoticeText(state)),
     )
   }
   if (state.kind === 'empty') {
-    return React.createElement('div', { className: 'dxp-notice' }, React.createElement('p', null, EMPTY_TEXT))
+    return React.createElement('div', { className: 'dxp-notice' }, React.createElement('p', null, viewNoticeText(state)))
   }
   return React.createElement(
     'div',

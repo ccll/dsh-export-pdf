@@ -46,6 +46,15 @@ export function initialViewState(blank) {
 }
 
 /**
+ * 空态与生成中共用的提示文案；视图主体直接用它渲染，避免文案与状态分支漂移。
+ * @param {{ kind: string }} state
+ * @returns {string}
+ */
+export function viewNoticeText(state) {
+  return state.kind === 'empty' ? EMPTY_TEXT : GENERATING_TEXT
+}
+
+/**
  * 把导出路由的响应压成页内状态。200 为就绪，204 为空态，其它状态优先进
  * 正文；正文为空（HEAD 无正文）时用 `x-dsh-export-error` 机器码。
  * @param {number} status HTTP 状态码

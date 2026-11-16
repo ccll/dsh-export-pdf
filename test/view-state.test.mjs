@@ -1,7 +1,7 @@
 // 测试锚点: R-01-001/AC-03 R-01-002/AC-02
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { classifyExportResponse, initialViewState, messageForErrorCode, messageForStatus, pdfRouteUrl } from '../src/view-state.mjs'
+import { EMPTY_TEXT, classifyExportResponse, initialViewState, messageForErrorCode, messageForStatus, pdfRouteUrl, viewNoticeText } from '../src/view-state.mjs'
 
 const BASE = 'http://127.0.0.1:3080/'
 
@@ -20,6 +20,9 @@ test('空会话首次渲染直接进入空态，避免发起导出请求', () =>
   assert.deepEqual(initialViewState(true), { kind: 'empty' })
   assert.deepEqual(initialViewState(false), { kind: 'loading' })
   assert.deepEqual(initialViewState(undefined), { kind: 'loading' })
+  // 视图主体用同一映射渲染空态文案；宿主渲染该页时必须看得到说明。
+  assert.equal(viewNoticeText(initialViewState(true)), EMPTY_TEXT)
+  assert.match(EMPTY_TEXT, /没有.*内容/)
 })
 
 test('HEAD 无正文时按错误机器码显示具体原因', () => {

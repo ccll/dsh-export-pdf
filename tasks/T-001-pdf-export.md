@@ -60,7 +60,7 @@ id: T-001
 | 边界配置 | 适用：browserPath 为空按 PATH 探测、timeoutMs 与 maxConcurrentRenders 生效、空转录 204、非 ASCII sessionId 400 | `test/config.test.mjs::timeoutMs`、`test/exporter.test.mjs::R-01-003/AC-02` |
 | 副作用 | 适用：会话日志只读、临时目录清理、缓存不落盘 | `e2e/specs/pdf-export.mjs::R-01-007/AC-01`、`test/exporter.test.mjs::R-01-007/AC-02` |
 | 安全 | 适用：无凭据 401、异源拒绝、错误不回显路径、路由注册在宿主鉴权通道 | `e2e/specs/pdf-export.mjs::R-01-008/AC-01`、`test/host.test.mjs::R-01-008/AC-01` |
-| 兼容性 | 适用：HEAD/GET 响应头一致、`conversation.view` 在宿主 0.2.0-rc.2 装载 | `test/route.test.mjs::R-01-006/AC-02`、`e2e/specs/pdf-export.mjs::R-01-001/AC-01` |
+| 兼容性 | 适用：HEAD/GET 响应头一致、`conversation.view` 在宿主 0.2.0-rc.2 装载 | `test/route.test.mjs::HEAD 与 GET 状态码和响应头一致`、`e2e/specs/pdf-export.mjs::R-01-001/AC-01` |
 | 性能 | 适用：缓存命中不重复渲染、同会话并发合并 | `test/exporter.test.mjs::R-01-003/AC-02` |
 
 ## 自查清单

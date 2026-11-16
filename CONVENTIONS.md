@@ -51,7 +51,8 @@ owner: agent 主笔，项目属主审批
 
 - `.d/` hook 统一使用 `NN-name.sh`，两位编号在同一目录内唯一；dispatcher 以 `LC_ALL=C` 按文件名顺序执行并在首个失败处停止。
 - `.githooks/pre-push`：先对 outgoing commits 重放 `.githooks/commit-msg`，再执行 `pre-push.d/`。
-- 权威验证入口: .githooks/pre-push
+- 权威验证入口: scripts/verify.sh
+- pre-push 只重放 commit-msg 与 AgentMap lint；完整验证由 scripts/verify.sh 与 CI 承载。
 - CI 门禁: 适用：`.github/workflows/ci.yml` 配置 docs 与 verify 两个 job；verify 跑构建、契约检查、单测与 e2e（锁定 DSH 0.2.0-rc.2、系统 Chrome 与 Noto CJK）
 - `.githooks/pre-commit.d/20-agentmap-lint.sh`：AgentMap 结构、追溯与派生报告。
 - `.githooks/pre-push.d/20-agentmap-lint.sh`：校验待推送历史的 AgentMap 不可变契约。

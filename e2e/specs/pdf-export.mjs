@@ -126,26 +126,29 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     assertEqual(bytes.subarray(0, 5).toString('ascii'), '%PDF-')
     assertEqual(Buffer.compare(previewBytes, bytes), 0, '下载与预览交付同一份字节')
 
-    if (hasCommand('pdfinfo')) {
+    const requireCommand = (command) => {
+      if (hasCommand(command)) return true
+      // CI 已安装 poppler；静默跳过会让 A4/分页/中文断言零覆盖。
+      if (process.env.CI) assert.fail(`CI 缺少 ${command}`)
+      console.error(`e2e: SKIP ${command} 断言（宿主缺少 ${command}）`)
+      return false
+    }
+    if (requireCommand('pdfinfo')) {
       const info = pdfInfo(savedPath)
       assertOk(/Page size:\s+59[45](?:\.\d+)? x 84[12](?:\.\d+)? pts/.test(info), '下载的 PDF 为 A4')
       const pages = Number(/^Pages:\s+(\d+)$/m.exec(info)?.[1] ?? '0')
       assertOk(pages >= 2, '长中文消息应分页，预览可浏览全部页面')
-      if (hasCommand('pdftotext')) {
+      if (requireCommand('pdftotext')) {
         const lastPage = execFileSync('pdftotext', ['-f', String(pages), '-l', String(pages), savedPath, '-'], { encoding: 'utf8' })
         assertOk(lastPage.includes(PAGINATION_MARKER), '末段标记位于最后一页')
       }
-    } else {
-      console.error('e2e: SKIP pdfinfo 断言（宿主缺少 pdfinfo）')
     }
-    if (hasCommand('pdftotext')) {
+    if (requireCommand('pdftotext')) {
       const text = pdfText(savedPath)
       assertOk(text.includes('中文导出探针'), 'PDF 文本层含用户中文消息')
       assertOk(text.includes(PAGINATION_MARKER), 'PDF 文本层含末段标记')
       assertOk(text.includes('导出探针回复'), 'PDF 文本层含助手回复')
       assertOk(!text.includes('file://'), 'PDF 不含临时文件路径')
-    } else {
-      console.error('e2e: SKIP pdftotext 断言（宿主缺少 pdftotext）')
     }
   } finally {
     await rm(directory, { recursive: true, force: true })

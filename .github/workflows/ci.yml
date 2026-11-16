@@ -48,7 +48,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk poppler-utils
 
       - name: Verify browser and fonts
-        run: google-chrome --version && fc-list :lang=zh | head -1 && pdfinfo -v | head -1
+        run: google-chrome --version && test -n "$(fc-list :lang=zh | head -1)" && pdfinfo -v | head -1
 
       - name: Build and contract check
         run: pnpm build:client && pnpm check

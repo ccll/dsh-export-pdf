@@ -67,6 +67,15 @@ function initialViewState(blank) {
 }
 
 /**
+ * 空态与生成中共用的提示文案；视图主体直接用它渲染，避免文案与状态分支漂移。
+ * @param {{ kind: string }} state
+ * @returns {string}
+ */
+function viewNoticeText(state) {
+  return state.kind === 'empty' ? EMPTY_TEXT : GENERATING_TEXT
+}
+
+/**
  * 把导出路由的响应压成页内状态。200 为就绪，204 为空态，其它状态优先进
  * 正文；正文为空（HEAD 无正文）时用 `x-dsh-export-error` 机器码。
  * @param {number} status HTTP 状态码
@@ -178,6 +187,10 @@ function PdfView(props) {
     setDownload({ kind: 'loading' })
     try {
       const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment' }), { credentials: 'same-origin' })
+      if (response.status === 204) {
+        setDownload({ kind: 'error', message: EMPTY_TEXT })
+        return
+      }
       if (!response.ok) {
         const text = await response.text().catch(() => '')
         setDownload({ kind: 'error', message: messageForStatus(response.status, text) })
@@ -225,16 +238,16 @@ function renderBody(state, retry) {
   if (state.kind === 'ready') {
     return React.createElement('iframe', { className: 'dxp-frame', src: state.url, title: 'PDF 预览' })
   }
-  if (state.kind === 'loading' || state.kind === 'idle') {
+  if (state.kind === 'loading') {
     return React.createElement(
       'div',
       { className: 'dxp-notice' },
       React.createElement('div', { className: 'dxp-spinner', 'aria-hidden': 'true' }),
-      React.createElement('p', null, GENERATING_TEXT),
+      React.createElement('p', null, viewNoticeText(state)),
     )
   }
   if (state.kind === 'empty') {
-    return React.createElement('div', { className: 'dxp-notice' }, React.createElement('p', null, EMPTY_TEXT))
+    return React.createElement('div', { className: 'dxp-notice' }, React.createElement('p', null, viewNoticeText(state)))
   }
   return React.createElement(
     'div',
