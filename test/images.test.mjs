@@ -38,7 +38,7 @@ test('图片引用解析为 data URI，文本与图片分段顺序保持', async
 test('同一附件只读取一次，不读取无引用的外部地址', async () => {
   let reads = 0
   const result = await resolveEmbeddedImages(
-    [entry([imagePart(), imagePart()]), entry([imagePart({ attachmentId: 'https://example.com/a.png' })])],
+    [entry([imagePart(), imagePart()]), entry([imagePart({ attachmentId: 'https://example.com/a.png', mediaType: 'image/png', bytes: 1 })])],
     {
       readImage: async () => {
         reads += 1

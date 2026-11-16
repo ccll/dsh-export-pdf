@@ -1,3 +1,5 @@
+import { IMAGE_MEDIA_TYPES } from './images.mjs'
+
 const HTML_ESCAPES = {
   '&': '&amp;',
   '<': '&lt;',
@@ -76,7 +78,12 @@ function renderBody(entry) {
     .map((part) => {
       if (part?.type !== 'image') return escapeHtml(part?.text)
       // dataUrl 只由导出器的附件解析器生成；非 data:image 值一律回退占位，避免注入。
-      if (typeof part.dataUrl !== 'string' || !part.dataUrl.startsWith('data:image/')) return escapeHtml('[图片]')
+      if (
+        typeof part.dataUrl !== 'string' ||
+        !IMAGE_MEDIA_TYPES.some((type) => part.dataUrl.startsWith(`data:${type};base64,`))
+      ) {
+        return escapeHtml('[图片]')
+      }
       return `<figure class="inline-image"><img src="${escapeHtml(part.dataUrl)}" alt="图片"></figure>`
     })
     .join('\n')

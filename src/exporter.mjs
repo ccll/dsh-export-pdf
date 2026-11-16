@@ -1,5 +1,5 @@
 import { foldTranscript } from './transcript.mjs'
-import { normalizeImageMode, normalizeInclude } from './selection.mjs'
+import { normalizeImageMode, normalizeInclude, selectionKey } from './selection.mjs'
 import { resolveEmbeddedImages } from './images.mjs'
 import { renderTranscriptHtml } from './render.mjs'
 import { FontUnavailableError, SessionUnavailableError, SubagentExportError } from './errors.mjs'
@@ -143,7 +143,7 @@ export function createExporter(dependencies) {
  * @param {string} imageMode 归一后的图片模式
  */
 function cacheKey(sessionId, include, imageMode) {
-  return `${sessionId}\u0000${include.join(',')}\u0000${imageMode}`
+  return `${sessionId}\u0000${selectionKey(include, imageMode)}`
 }
 
 /**

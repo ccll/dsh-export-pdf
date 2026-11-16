@@ -276,6 +276,14 @@ test('真实浏览器打印：图片占位/嵌入原图/不导出', { timeout: 1
       const list = execFileSync('pdfimages', ['-list', pdfPath], { encoding: 'utf8' })
       const imageRows = list.split('\n').filter((line) => /^\s*\d+\s+\d+\s+image\b/.test(line))
       assert.equal(imageRows.length > 0, expectedImage, `${mode} 位图嵌入符合预期`)
+      if (expectedImage) {
+        // 按嵌入图片的像素宽与 x-ppi 换算 PDF 点宽，确认图片未越出 A4 版心。
+        const fields = imageRows[0].trim().split(/\s+/)
+        const width = Number(fields[3])
+        const xppi = Number(fields[12])
+        const displayWidth = xppi > 0 ? (width * 72) / xppi : Number.POSITIVE_INFINITY
+        assert.ok(displayWidth <= 595, `${mode} 图片宽度不得越出 A4 页面，实际 ${displayWidth.toFixed(1)}pt`)
+      }
     }
   } finally {
     await rm(directory, { recursive: true, force: true })

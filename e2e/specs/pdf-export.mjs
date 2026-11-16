@@ -12,7 +12,7 @@ import { clickPdfTab, expectedPdfPrefix, newestSessionLog, openApp, sendHeroMess
 //           R-01-004/AC-01 R-01-005/AC-01 R-01-005/AC-02
 //           R-01-006/AC-03 R-01-007/AC-01 R-01-007/AC-02
 //           R-01-008/AC-01 R-01-008/AC-02 R-01-011/AC-04 R-01-011/AC-06
-//           R-01-012/AC-05
+//           R-01-012/AC-01 R-01-012/AC-05
 // 一次真实会话的 PDF 页：页签、生成中、预览、下载、A4/中文、只读、
 // 无凭据拒绝与同源栅栏。
 const PAGINATION_MARKER = '末段标记Z'
