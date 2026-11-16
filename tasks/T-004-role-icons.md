@@ -6,7 +6,7 @@ id: T-004
 
 # T-004 角色图标
 
-状态: active
+状态: completed
 类型: UI/UX 改进
 风险等级: minor
 风险面: 无（仅 PDF 版式呈现）
@@ -39,4 +39,8 @@ id: T-004
 
 ## 终态与证据
 
-关闭时填写实现、测试、SOLUTION 对照、commit 与独立 review 证据。
+- 实现: `src/render.mjs` 的角色行内嵌 16×16 内联 SVG：用户图标在“用户”文字右侧、随标签靠右；助手图标在“助手”文字左侧、随标签靠左。图标继承标签颜色、约 3.4 mm，`aria-hidden`，不进入 PDF 文本层，不依赖位图或外部资源。
+- 测试: `test/render.test.mjs` 5/5（逐条断言 user/assistant 各一个图标、`<svg class="avatar">`、左右顺序与无外部资源）；全量 `pnpm test` 48/48；`pnpm test:e2e` 两套通过；真实 Chrome PDF 1/1；`/tmp/dsh-icons-1.png` 及放大裁剪目视确认小人/机器人可辨、贴右/左缘。
+- SOLUTION 对照: R-01-010/AC-01..02 均有实现与锚点；仅角色标签结构与图标样式变化，右对齐、长消息跨页、A4 边界、路由/缓存/鉴权均未变；README 中英文已同步。
+- commit: df06bf1
+- review: 独立只读评审｜目的理解：图标可辨且不破坏右对齐、跨页与 A4 版式｜结论：通过（无 blocking；2 条 non-blocking 已随 df06bf1 逐条图标断言处置）。

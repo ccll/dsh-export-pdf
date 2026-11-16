@@ -96,6 +96,7 @@ git config core.hooksPath .githooks
 | M-002 Transcript fidelity | event ordering, Chinese text, pagination | delivered by T-001 |
 | M-003 Failure and boundaries | visible failures, read-only export, authenticated requests | delivered by T-001 |
 | M-004 Message layout | right-aligned user messages, left-aligned assistant replies | delivered by T-003 |
+| M-005 Role icons | person icon for users, robot icon for assistants | delivered by T-004 |
 
 ## License
 
