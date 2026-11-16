@@ -114,7 +114,7 @@ test('真实浏览器打印：A4、多页、中文字形与转录内容正确', 
     const rightEdges = [...bbox.matchAll(/xMax="([\d.]+)"/g)].map((match) => Number(match[1]))
     assert.ok(rightEdges.length > 0, 'bbox 应包含词框')
     const maxRight = Math.max(...rightEdges)
-    assert.ok(maxRight < 552, `内容不得越出页面右边界，实际 xMax=${maxRight}`)
+    assert.ok(maxRight < 550, `内容不得越出页面右边界，实际 xMax=${maxRight}`)
 
     // R-01-009/AC-01、AC-02：用户消息整体右移，助手回复从左侧起排。
     const wordXMin = (marker) => {
@@ -128,6 +128,17 @@ test('真实浏览器打印：A4、多页、中文字形与转录内容正确', 
     assert.ok(assistantX < 300, `助手回复应从左侧起排，实际 xMin=${assistantX}`)
     assert.ok(userX > assistantX + 80, `用户消息应右移，用户 xMin=${userX}，助手 xMin=${assistantX}`)
     assert.ok(maxRight > 500, `用户消息应抵达版心右缘，实际 xMax=${maxRight}`)
+
+    // 角色标签也必须贴合各自的边缘：用户“用户”在右缘，助手“助手”在左缘。
+    const labelXMin = (label) => {
+      const line = bbox.split('\n').find((value) => value.includes(`>${label}</word>`))
+      const match = /xMin="([\d.]+)"/.exec(line ?? '')
+      return match === null ? undefined : Number(match[1])
+    }
+    const userLabelX = labelXMin('用户')
+    const assistantLabelX = labelXMin('助手')
+    assert.ok(userLabelX > 500, `用户角色标签应贴近右缘，实际 xMin=${userLabelX}`)
+    assert.ok(assistantLabelX < 100, `助手角色标签应贴近左缘，实际 xMin=${assistantLabelX}`)
     // 第一页正文应从用户消息开始，而不是 Chrome 默认页眉的日期。
     assert.ok(firstPage.includes('中文导出探针'), '第一页包含用户消息')
     assert.ok(!/^\s*\d{1,2}\/\d{1,2}\/\d{2}/.test(firstPage), '第一页不得出现 Chrome 默认页眉日期')

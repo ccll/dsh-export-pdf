@@ -139,8 +139,8 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
       const pages = Number(/^Pages:\s+(\d+)$/m.exec(info)?.[1] ?? '0')
       assertOk(pages >= 2, '长中文消息应分页，预览可浏览全部页面')
       if (requireCommand('pdftotext')) {
-        // 右侧气泡变窄后，长用户消息可能正好在页尾结束、助手回复另起一页；
-        // 因此只断言标记出现在非首页的某一页，而不是机械地要求它在末页。
+        // 标记可能因换行被拆开，逐页查找；再断言末页含助手回复，
+        // 保证断言没有因为放宽“末页含标记”而丢掉内容覆盖末页的守卫。
         let markerPage = 0
         for (let pageNumber = 1; pageNumber <= pages; pageNumber += 1) {
           const pageText = execFileSync('pdftotext', ['-f', String(pageNumber), '-l', String(pageNumber), savedPath, '-'], { encoding: 'utf8' })
@@ -150,6 +150,8 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
           }
         }
         assertOk(markerPage > 1, `末段标记应跨页出现，实际在第 ${markerPage} 页`)
+        const lastPage = execFileSync('pdftotext', ['-f', String(pages), '-l', String(pages), savedPath, '-'], { encoding: 'utf8' })
+        assertOk(lastPage.includes('导出探针回复'), '助手回复应覆盖末页')
       }
     }
     if (requireCommand('pdftotext')) {
