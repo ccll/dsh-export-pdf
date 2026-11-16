@@ -1,4 +1,4 @@
-// 测试锚点: R-01-003/AC-02 R-01-006/AC-01 R-01-006/AC-04 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-04 R-01-011/AC-05
+// 测试锚点: R-01-003/AC-02 R-01-006/AC-01 R-01-006/AC-04 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-04 R-01-011/AC-05 R-01-012/AC-03 R-01-012/AC-05
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createExporter } from '../src/exporter.mjs'
@@ -25,9 +25,14 @@ function userEvent(seq, text = `用户 ${seq}`) {
   return { type: 'user/message', seq, time: seq, data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } }
 }
 
+function imageEvent(seq, ref) {
+  return { type: 'user/message', seq, time: seq, data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: ref }] } }
+}
+
 function makeExporter({
   events = [userEvent(1)],
   readSession,
+  readImage,
   renderPdf = async () => PDF,
   hasCjkFont = async () => true,
   maxConcurrentRenders = 2,
@@ -36,6 +41,7 @@ function makeExporter({
 } = {}) {
   return createExporter({
     readSession: readSession ?? (async () => snapshot(events)),
+    readImage,
     renderPdf,
     hasCjkFont,
     maxConcurrentRenders,
@@ -326,4 +332,79 @@ test('依赖缺失在创建期报错', () => {
   assert.throws(() => createExporter({}), /readSession/)
   assert.throws(() => createExporter({ readSession: async () => snapshot([]) }), /renderPdf/)
   assert.throws(() => createExporter({ readSession: async () => snapshot([]), renderPdf: async () => PDF }), /hasCjkFont/)
+})
+const IMAGE_REF = { attachmentId: 'sha256:img', mediaType: 'image/png', bytes: 4 }
+const IMAGE_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+
+test('图片三模式独立缓存：占位不读图，嵌入读图，失败回退占位', async () => {
+  const events = [userEvent(1, '看图'), imageEvent(2, IMAGE_REF), userEvent(3, '后续')]
+  let reads = 0
+  let renders = 0
+  const htmls = []
+  const exporter = makeExporter({
+    events,
+    readImage: async () => {
+      reads += 1
+      return { data: IMAGE_BYTES, ref: IMAGE_REF }
+    },
+    renderPdf: async (html) => {
+      renders += 1
+      htmls.push(html)
+      return PDF
+    },
+  })
+
+  const placeholder = await exporter.exportSession('s')
+  assert.equal(placeholder.kind, 'pdf')
+  assert.equal(reads, 0, '占位模式不读取附件')
+  assert.ok(htmls[0].includes('[图片]'))
+  assert.ok(!htmls[0].includes('data:image/png;base64'))
+
+  const embed = await exporter.exportSession('s', [], 'embed')
+  const embedAgain = await exporter.exportSession('s', [], 'embed')
+  assert.equal(embed.kind, 'pdf')
+  assert.equal(reads, 1, '同模式命中缓存不重复读图')
+  assert.ok(htmls[1].includes('data:image/png;base64'))
+  assert.ok(!htmls[1].includes('[图片]'))
+  assert.deepEqual(embedAgain.bytes, embed.bytes)
+  assert.equal(renders, 2, '占位与嵌入各渲染一次')
+
+  const none = await exporter.exportSession('s', [], 'none')
+  assert.equal(none.kind, 'pdf')
+  assert.ok(!htmls[2].includes('data:image/png;base64'))
+  assert.ok(!htmls[2].includes('[图片]'), '不导出模式省略图片占位')
+  assert.equal(reads, 1)
+})
+
+test('嵌入图片读取失败回退占位，不中断整份导出', async () => {
+  const logs = []
+  const exporter = makeExporter({
+    events: [userEvent(1, '前文'), imageEvent(2, IMAGE_REF), userEvent(3, '后文')],
+    readImage: async () => {
+      throw new Error('附件损坏')
+    },
+    renderPdf: async (html) => {
+      assert.ok(html.includes('[图片]'))
+      assert.ok(html.includes('前文'))
+      assert.ok(html.includes('后文'))
+      return PDF
+    },
+    logError: (message) => logs.push(message),
+  })
+  assert.equal((await exporter.exportSession('s', [], 'embed')).kind, 'pdf')
+  assert.ok(logs.some((message) => message.includes('图片')))
+})
+
+test('纯图片消息在 none 模式折叠为空，不启动渲染', async () => {
+  let renders = 0
+  const exporter = makeExporter({
+    events: [imageEvent(1, IMAGE_REF)],
+    readImage: async () => ({ data: IMAGE_BYTES, ref: IMAGE_REF }),
+    renderPdf: async () => {
+      renders += 1
+      return PDF
+    },
+  })
+  assert.deepEqual(await exporter.exportSession('s', [], 'none'), { kind: 'empty' })
+  assert.equal(renders, 0)
 })

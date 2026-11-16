@@ -1,4 +1,4 @@
-import { normalizeInclude } from './selection.mjs'
+import { normalizeImageMode, normalizeInclude } from './selection.mjs'
 
 /** 视图页固定文案。 */
 export const EMPTY_TEXT = '该会话还没有消息，暂无可导出的内容。'
@@ -27,7 +27,7 @@ const ERROR_MESSAGES = {
  * 因此按 document.baseURI 解析成部署前缀下的绝对地址；与宿主其他
  * document-relative 路由一致。
  * @param {string} sessionId 会话标识
- * @param {{ base?: string, disposition?: 'inline' | 'attachment', include?: readonly string[] }} [options]
+ * @param {{ base?: string, disposition?: 'inline' | 'attachment', include?: readonly string[], imageMode?: unknown }} [options]
  * @returns {string}
  */
 export function pdfRouteUrl(sessionId, options = {}) {
@@ -35,8 +35,10 @@ export function pdfRouteUrl(sessionId, options = {}) {
   const disposition = options.disposition ?? 'inline'
   const include = normalizeInclude(options.include)
   const includeQuery = include.length === 0 ? '' : `&include=${encodeURIComponent(include.join(','))}`
+  const imageMode = normalizeImageMode(options.imageMode)
+  const imageQuery = imageMode === 'placeholder' ? '' : `&image=${encodeURIComponent(imageMode)}`
   return new URL(
-    `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}${includeQuery}`,
+    `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}${includeQuery}${imageQuery}`,
     base,
   ).href
 }

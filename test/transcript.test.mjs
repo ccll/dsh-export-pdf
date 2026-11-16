@@ -1,4 +1,4 @@
-// 测试锚点: R-01-004/AC-01 R-01-004/AC-02 R-01-004/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03
+// 测试锚点: R-01-004/AC-01 R-01-004/AC-02 R-01-004/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03 R-01-012/AC-02 R-01-012/AC-04
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
@@ -109,7 +109,7 @@ test('工具参数里的换行被折叠，摘要始终单行', () => {
   assert.ok(!entries[0].summary.includes('\n'))
 })
 
-test('导出选择：默认只保留消息文本，工具与附件占位分别按选择加入', () => {
+test('导出选择：图片默认占位，工具与文件各自独立', () => {
   const events = [
     userEvent(1, '第一问', { kind: 'user' }),
     assistantEvent(2, [{ type: 'reasoning', text: '思考块' }, { type: 'text', text: '第一答' }]),
@@ -119,43 +119,65 @@ test('导出选择：默认只保留消息文本，工具与附件占位分别�
       type: 'user/message',
       seq: 5,
       time: 5,
-      data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: { id: 'img' } }] },
+      data: {
+        source: { kind: 'user' },
+        content: [{ type: 'image', attachment: { attachmentId: 'sha256:img', mediaType: 'image/png', bytes: 1 } }],
+      },
     },
     assistantEvent(6, [{ type: 'file', attachment: { name: '报告.pdf' } }, { type: 'text', text: '附件回复' }]),
   ]
 
+  // 默认：图片占位，文件与工具都不加入。
   const minimal = foldTranscript(events)
-  assert.deepEqual(minimal.map((entry) => entry.kind), ['user', 'assistant', 'user', 'assistant'])
-  assert.deepEqual(minimal.map((entry) => entry.seq), [1, 2, 4, 6])
-  assert.deepEqual(minimal.map((entry) => entry.text), ['第一问', '第一答', '看图', '附件回复'])
+  assert.deepEqual(minimal.map((entry) => entry.kind), ['user', 'assistant', 'user', 'user', 'assistant'])
+  assert.deepEqual(minimal.map((entry) => entry.seq), [1, 2, 4, 5, 6])
+  assert.deepEqual(minimal.map((entry) => entry.text), ['第一问', '第一答', '看图', '[图片]', '附件回复'])
   assert.ok(!JSON.stringify(minimal).includes('bash'))
 
   const withTools = foldTranscript(events, { include: ['tools'] })
-  assert.deepEqual(withTools.map((entry) => entry.kind), ['user', 'assistant', 'tool', 'user', 'assistant'])
+  assert.deepEqual(withTools.map((entry) => entry.kind), ['user', 'assistant', 'tool', 'user', 'user', 'assistant'])
   assert.equal(withTools[2].summary, 'command=echo 1')
 
-  const withAttachments = foldTranscript(events, { include: ['attachments'] })
-  assert.deepEqual(withAttachments.map((entry) => entry.kind), ['user', 'assistant', 'user', 'user', 'assistant'])
-  assert.equal(withAttachments[3].text, '[图片]')
-  assert.equal(withAttachments[4].text, '[附件: 报告.pdf]\n附件回复')
+  const withFiles = foldTranscript(events, { include: ['attachments'] })
+  assert.deepEqual(withFiles.map((entry) => entry.kind), ['user', 'assistant', 'user', 'user', 'assistant'])
+  assert.equal(withFiles[3].text, '[图片]')
+  assert.equal(withFiles[4].text, '[附件: 报告.pdf]\n附件回复')
 
   const both = foldTranscript(events, { include: ['attachments', 'tools'] })
   assert.deepEqual(both.map((entry) => entry.kind), ['user', 'assistant', 'tool', 'user', 'user', 'assistant'])
   assert.equal(both[2].name, 'bash')
   assert.equal(both[4].text, '[图片]')
+
+  const none = foldTranscript(events, { imageMode: 'none' })
+  assert.deepEqual(none.map((entry) => entry.seq), [1, 2, 4, 6], '不导出图片时纯图片消息被省略')
+  assert.ok(!none.some((entry) => entry.text?.includes('[图片]')))
+
+  const embed = foldTranscript(events, { imageMode: 'embed' })
+  assert.deepEqual(embed.map((entry) => entry.seq), [1, 2, 4, 5, 6], '嵌入模式保留纯图片消息')
+  assert.deepEqual(embed[3].parts, [
+    { type: 'image', attachment: { attachmentId: 'sha256:img', mediaType: 'image/png', bytes: 1 } },
+  ])
+  assert.equal(embed[3].text, '')
 })
 
-test('附件占位关闭时，纯附件消息不进入结果', () => {
-  const entries = foldTranscript([
-    {
-      type: 'user/message',
-      seq: 1,
-      time: 1,
-      data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: { id: 'img' } }] },
+test('纯文件消息只在文件附件选中时进入结果，图片与文件互不牵连', () => {
+  const fileOnly = assistantEvent(1, [{ type: 'file', attachment: { name: '报告.pdf' } }])
+  assert.deepEqual(foldTranscript([fileOnly]), [])
+  assert.equal(foldTranscript([fileOnly], { include: ['attachments'] })[0].text, '[附件: 报告.pdf]')
+
+  const imageOnly = {
+    type: 'user/message',
+    seq: 2,
+    time: 2,
+    data: {
+      source: { kind: 'user' },
+      content: [{ type: 'image', attachment: { attachmentId: 'sha256:img', mediaType: 'image/png', bytes: 1 } }],
     },
-    assistantEvent(2, [{ type: 'text', text: '收到图片' }]),
-  ])
-  assert.deepEqual(entries, [{ kind: 'assistant', seq: 2, text: '收到图片' }])
+  }
+  // 文件复选框关闭不影响图片默认占位；图片模式不导出时纯图片消息才消失。
+  assert.equal(foldTranscript([imageOnly])[0].text, '[图片]')
+  assert.deepEqual(foldTranscript([imageOnly], { include: ['attachments'] }), [{ kind: 'user', seq: 2, text: '[图片]' }])
+  assert.deepEqual(foldTranscript([imageOnly], { imageMode: 'none' }), [])
 })
 
 test('空事件列表折叠为空', () => {

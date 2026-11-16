@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-02 R-01-010/AC-01 R-01-010/AC-02
+// 测试锚点: R-01-005/AC-02 R-01-010/AC-01 R-01-010/AC-02 R-01-012/AC-02 R-01-012/AC-03
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { PAGE_STYLE, escapeHtml, renderTranscriptHtml } from '../src/render.mjs'
@@ -28,7 +28,8 @@ test('页面样式固定 A4、中文可读、无页眉页脚与页码规则', ()
   assert.ok(PAGE_STYLE.includes('Noto Sans CJK SC'))
   assert.ok(PAGE_STYLE.includes('white-space: pre-wrap'))
   assert.ok(PAGE_STYLE.includes('overflow-wrap: anywhere'))
-  assert.ok(!PAGE_STYLE.includes('break-inside: avoid'), '消息块必须允许跨页续排')
+  assert.ok(!/\.entry\s*\{[^}]*break-inside/.test(PAGE_STYLE), '消息块必须允许跨页续排')
+  assert.ok(PAGE_STYLE.includes('.inline-image'), '内联图片有不越界约束')
   assert.ok(!PAGE_STYLE.includes('@bottom-center'), '不生成页码')
   const html = renderTranscriptHtml([{ kind: 'user', text: '你好' }])
   assert.ok(!html.includes('11/16/26'))
@@ -58,4 +59,28 @@ test('空条目渲染出空正文文档而不是报错', () => {
   const html = renderTranscriptHtml([])
   assert.ok(html.includes('<main>\n\n</main>'))
   assert.ok(html.endsWith('</html>\n'))
+})
+test('图片分段以 data URI 内联到消息原位，非法地址回退占位', () => {
+  const imageUrl = 'data:image/png;base64,iVBORw0KGgo='
+  const html = renderTranscriptHtml([
+    {
+      kind: 'user',
+      text: '看图\n后续',
+      parts: [
+        { type: 'text', text: '看图' },
+        { type: 'image', attachment: { attachmentId: 'sha256:img' }, dataUrl: imageUrl },
+        { type: 'text', text: '后续' },
+      ],
+    },
+    {
+      kind: 'assistant',
+      text: '[图片]',
+      parts: [{ type: 'image', attachment: { attachmentId: 'bad' }, dataUrl: 'https://example.com/a.png' }],
+    },
+  ])
+  assert.ok(html.includes(`<img src="${imageUrl}" alt="图片">`))
+  assert.ok(html.indexOf('看图') < html.indexOf('<figure class="inline-image">'))
+  assert.ok(html.indexOf('<figure class="inline-image">') < html.indexOf('后续'))
+  assert.ok(!html.includes('https://example.com/a.png'), '非 data:image 地址不得进入图片标签')
+  assert.ok(html.includes('[图片]'), '非法图片地址回退占位')
 })

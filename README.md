@@ -54,12 +54,13 @@ Invalid values fail at plugin load instead of silently falling back.
 - **PDF view page**: a view in the session view area providing both preview and download.
 - **In-page preview**: the generated PDF is displayed in place in the browser's PDF viewer, with navigation across all pages.
 - **Download**: delivers the same bytes under the stable filename above.
-- **Faithful transcript**: user and assistant message text in log order by default; the header checkboxes add one-line tool summaries and attachment placeholders; thinking blocks omitted.
+- **Faithful transcript**: user and assistant message text in log order by default; image placeholders follow the image mode, while the header checkboxes add file placeholders and one-line tool summaries; thinking blocks omitted.
 - **Readable Chinese output**: CJK glyphs embedded, A4 pages, Chrome's default header/footer disabled so no date, title, or temporary file path is printed.
 - **Visible failures**: a missing session, an unreadable log, a missing browser, a missing CJK font, a render failure, or a timeout produces an explicit message on the page and never a partial file. A failed render is not cached, so **Retry** starts a fresh attempt.
 - **Read-only**: exporting never writes to the session log and leaves no files behind.
 - **Credentialed and same-origin only**: the route is registered through DSH's `/api` channel, so the host's browser authentication and Host/Origin fence apply before the plugin sees the request.
-- **Per-selection reuse**: concurrent requests for one session and selection share a single render; a cached result is reused until the log grows or the selection changes.
+- **Image modes**: the header image select offers placeholder (default), embed original, and no export. Embedded images are read only from this session's attachment references, scaled inside the page, and fall back to `[图片]` when unavailable; files are never embedded.
+- **Per-selection reuse**: concurrent requests for one session, content selection, and image mode share a single render; a cached result is reused until the log grows or the selection changes.
 
 ## Development
 
@@ -97,7 +98,8 @@ git config core.hooksPath .githooks
 | M-003 Failure and boundaries | visible failures, read-only export, authenticated requests | delivered by T-001 |
 | M-004 Message layout | right-aligned user messages, left-aligned assistant replies | delivered by T-003 |
 | M-005 Role icons | person icon for users, robot icon for assistants | delivered by T-004 |
-| M-006 Export content selection | default minimal, opt-in tool summaries and attachment placeholders | delivered by T-005 |
+| M-006 Export content selection | default minimal, opt-in tool summaries and file placeholders | delivered by T-005 |
+| M-007 Image export modes | placeholder, embed original, or omit images | delivered by T-007 |
 
 ## License
 

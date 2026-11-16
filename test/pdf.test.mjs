@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03
+// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03 R-01-012/AC-02 R-01-012/AC-03 R-01-012/AC-06
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -9,6 +9,7 @@ import { detectCjkFont } from '../src/fonts.mjs'
 import { renderPdfWithBrowser, resolveBrowserPath } from '../src/chrome.mjs'
 import { foldTranscript } from '../src/transcript.mjs'
 import { renderTranscriptHtml } from '../src/render.mjs'
+import { createExporter } from '../src/exporter.mjs'
 
 const PARAGRAPHS = 60
 const CJK_LINE = '这是一段用于验证中文分页与字形嵌入的正文，包含标点、数字 12345 与 English words。'
@@ -206,6 +207,75 @@ test('真实浏览器打印：默认最简与内容选择组合', { timeout: 120
       const text = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' })
       for (const needle of expected) assert.ok(text.includes(needle), `${label} 应包含 ${needle}`)
       for (const needle of forbidden) assert.ok(!text.includes(needle), `${label} 不应包含 ${needle}`)
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('真实浏览器打印：图片占位/嵌入原图/不导出', { timeout: 120_000 }, async (context) => {
+  const browserPath = await resolveBrowserPath('').catch(() => undefined)
+  const skip = (reason) => {
+    if (process.env.CI) assert.fail(reason)
+    context.skip(reason)
+  }
+  if (browserPath === undefined) {
+    skip('宿主没有可用的 Chrome/Chromium')
+    return
+  }
+  if (!(await detectCjkFont())) {
+    skip('宿主没有可用的中文字体')
+    return
+  }
+  if (!hasCommand('pdftotext') || !hasCommand('pdfimages')) {
+    skip('宿主缺少 pdftotext/pdfimages')
+    return
+  }
+
+  // 80x40 PNG：蓝底加一块黄块，用来确认真实打印链路确实嵌入了位图。
+  const image = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAFAAAAAoCAIAAADmAupWAAAAYklEQVR42u3aMQ3AIBBAUSDVgYTKYUBExSADJZ1R1L07SSnvbzddXm69mOsddiqFzQIG/lnHax5XmbfsbN2FgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBP1L04wEMvHQPMlgF0cj7b/gAAAAASUVORK5CYII=',
+    'base64',
+  )
+  const ref = { attachmentId: 'sha256:test-image', mediaType: 'image/png', bytes: image.byteLength, width: 80, height: 40 }
+  const events = [
+    {
+      type: 'user/message',
+      seq: 1,
+      time: 1,
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '图片内容探针' }, { type: 'image', attachment: ref }] },
+    },
+    {
+      type: 'assistant/message',
+      seq: 2,
+      time: 2,
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: '图片之后' }] } },
+    },
+  ]
+  const exporter = createExporter({
+    readSession: async () => ({ session: { id: 's', origin: 'main', delegationDepth: 0 }, events }),
+    readImage: async () => ({ data: image, ref }),
+    hasCjkFont: async () => true,
+    renderPdf: (html) => renderPdfWithBrowser({ html, browserPath, timeoutMs: 60_000 }),
+  })
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-pdf-image-'))
+  try {
+    for (const [mode, expectedImage, expectedPlaceholder] of [
+      ['placeholder', false, true],
+      ['embed', true, false],
+      ['none', false, false],
+    ]) {
+      const result = await exporter.exportSession('s', [], mode)
+      assert.equal(result.kind, 'pdf', `${mode} 应生成 PDF`)
+      const pdfPath = join(directory, `${mode}.pdf`)
+      await writeFile(pdfPath, result.bytes)
+      const text = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' })
+      assert.ok(text.includes('图片内容探针'), `${mode} 保留用户文本`)
+      assert.ok(text.includes('图片之后'), `${mode} 保留助手文本`)
+      assert.equal(text.includes('[图片]'), expectedPlaceholder, `${mode} 占位文本符合预期`)
+      const list = execFileSync('pdfimages', ['-list', pdfPath], { encoding: 'utf8' })
+      const imageRows = list.split('\n').filter((line) => /^\s*\d+\s+\d+\s+image\b/.test(line))
+      assert.equal(imageRows.length > 0, expectedImage, `${mode} 位图嵌入符合预期`)
     }
   } finally {
     await rm(directory, { recursive: true, force: true })

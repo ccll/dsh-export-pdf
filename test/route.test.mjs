@@ -1,4 +1,4 @@
-// 测试锚点: R-01-003/AC-01 R-01-006/AC-01 R-01-006/AC-02 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-06
+// 测试锚点: R-01-003/AC-01 R-01-006/AC-01 R-01-006/AC-02 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-06 R-01-012/AC-01
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { SESSION_PDF_PATH, handlePdfRequest } from '../src/route.mjs'
@@ -158,4 +158,36 @@ test('HEAD 错误响应没有正文但保留状态码与错误码', async () => 
   assert.equal(response.headers.get('x-dsh-export-error'), 'session')
   assert.equal(await response.text(), '')
   assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8')
+})
+test('image 模式缺省占位、合法归一、文件名后缀与非法值 400', async () => {
+  let seen
+  const exporter = {
+    exportSession: async (_sessionId, include, imageMode) => {
+      seen = { include, imageMode }
+      return { kind: 'pdf', bytes: PDF }
+    },
+  }
+  const base = `?sessionId=${SESSION_ID}`
+
+  const placeholder = await handlePdfRequest(request(base), exporter)
+  assert.deepEqual(seen, { include: [], imageMode: 'placeholder' })
+  assert.equal(placeholder.headers.get('content-disposition'), 'inline; filename="dsh-session-1b9b2ef9.pdf"')
+
+  const empty = await handlePdfRequest(request(`${base}&image=`), exporter)
+  assert.equal(empty.status, 200, 'image= 空串等同缺省占位')
+  assert.equal(seen.imageMode, 'placeholder')
+
+  const embed = await handlePdfRequest(request(`${base}&image=embed&include=tools`), exporter)
+  assert.deepEqual(seen, { include: ['tools'], imageMode: 'embed' })
+  assert.equal(embed.headers.get('content-disposition'), 'inline; filename="dsh-session-1b9b2ef9-tools-images.pdf"')
+
+  const none = await handlePdfRequest(request(`${base}&image=none`), exporter)
+  assert.equal(none.headers.get('content-disposition'), 'inline; filename="dsh-session-1b9b2ef9-no-images.pdf"')
+
+  for (const image of ['unknown', 'embed&image=none']) {
+    const invalid = await handlePdfRequest(request(`${base}&image=${image}`), exporterReturning({ kind: 'pdf', bytes: PDF }))
+    assert.equal(invalid.status, 400, `image=${image}`)
+    assert.match(await invalid.text(), /image/)
+  }
+  assert.deepEqual(seen, { include: [], imageMode: 'none' }, '非法 image 不得再次调用导出器')
 })

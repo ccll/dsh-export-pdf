@@ -1,5 +1,6 @@
 import { foldTranscript } from './transcript.mjs'
-import { normalizeInclude } from './selection.mjs'
+import { normalizeImageMode, normalizeInclude } from './selection.mjs'
+import { resolveEmbeddedImages } from './images.mjs'
 import { renderTranscriptHtml } from './render.mjs'
 import { FontUnavailableError, SessionUnavailableError, SubagentExportError } from './errors.mjs'
 
@@ -11,6 +12,7 @@ export const MAX_CACHE_ENTRIES = 32
  * 缓存/并发语义上替换真实浏览器。
  * @param {{
  *   readSession: (sessionId: string) => Promise<{ session?: any, events: readonly any[] }>,
+ *   readImage?: (ref: any) => Promise<{ data: Uint8Array, ref?: any }>,
  *   renderPdf: (html: string) => Promise<Uint8Array>,
  *   hasCjkFont: () => Promise<boolean>,
  *   maxConcurrentRenders?: number,
@@ -21,6 +23,7 @@ export const MAX_CACHE_ENTRIES = 32
 export function createExporter(dependencies) {
   const {
     readSession,
+    readImage,
     renderPdf,
     hasCjkFont,
     maxConcurrentRenders = 2,
@@ -41,12 +44,14 @@ export function createExporter(dependencies) {
    * 导出一个会话。命中缓存直接返回；同会话同选择并发请求合并到一次渲染；
    * 日志长度变化后重读并重新渲染。不同选择使用不同的缓存与单飞键。
    * @param {string} sessionId 会话标识
-   * @param {readonly string[]} [include] 导出内容选择
+   * @param {readonly string[]} [include] 工具与文件附件选择
+   * @param {unknown} [imageMode] 图片模式：none、placeholder 或 embed
    * @returns {Promise<{ kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' }>}
    */
-  async function exportSession(sessionId, include = []) {
+  async function exportSession(sessionId, include = [], imageMode = 'placeholder') {
     const selected = normalizeInclude(include)
-    const key = cacheKey(sessionId, selected)
+    const mode = normalizeImageMode(imageMode)
+    const key = cacheKey(sessionId, selected, mode)
     for (;;) {
       const snapshot = await readSnapshot(sessionId)
       const length = snapshot.events.length
@@ -60,7 +65,7 @@ export function createExporter(dependencies) {
         continue
       }
 
-      const task = renderSnapshot(sessionId, snapshot, selected)
+      const task = renderSnapshot(sessionId, snapshot, selected, mode)
       inFlight.set(key, task)
       try {
         const result = await task
@@ -91,10 +96,13 @@ export function createExporter(dependencies) {
     return snapshot
   }
 
-  async function renderSnapshot(sessionId, snapshot, include) {
-    const entries = foldTranscript(snapshot.events, { include })
+  async function renderSnapshot(sessionId, snapshot, include, imageMode) {
+    let entries = foldTranscript(snapshot.events, { include, imageMode })
     if (entries.length === 0) return { kind: 'empty' }
     if (!(await hasCjkFont())) throw new FontUnavailableError()
+    if (imageMode === 'embed') {
+      entries = await resolveEmbeddedImages(entries, { readImage, logError })
+    }
     const html = renderTranscriptHtml(entries)
     try {
       const bytes = await limiter.run(() => renderPdf(html))
@@ -128,13 +136,14 @@ export function createExporter(dependencies) {
 }
 
 /**
- * 缓存与单飞键：会话标识与归一选择用 NUL 分隔，避免与标识字符冲突。
- * 选择为空时键仍带分隔符，保证默认选择只有一种表示。
+ * 缓存与单飞键：会话标识、归一选择与图片模式用 NUL 分隔，
+ * 避免不同图片模式复用同一份 PDF。
  * @param {string} sessionId 会话标识
- * @param {readonly string[]} include 归一后的选择
+ * @param {readonly string[]} include 归一后的工具/文件选择
+ * @param {string} imageMode 归一后的图片模式
  */
-function cacheKey(sessionId, include) {
-  return `${sessionId}\u0000${include.join(',')}`
+function cacheKey(sessionId, include, imageMode) {
+  return `${sessionId}\u0000${include.join(',')}\u0000${imageMode}`
 }
 
 /**

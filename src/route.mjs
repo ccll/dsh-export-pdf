@@ -7,7 +7,7 @@ import {
   SubagentExportError,
 } from './errors.mjs'
 import { pdfFilename } from './naming.mjs'
-import { INCLUDE_TOKENS, normalizeInclude } from './selection.mjs'
+import { IMAGE_MODES, INCLUDE_TOKENS, normalizeImageMode, normalizeInclude } from './selection.mjs'
 
 /** 导出路由在 Connection `/api` 通道下的绝对路径。 */
 export const SESSION_PDF_PATH = '/api/session.pdf'
@@ -20,7 +20,7 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]+$/
  * 处理一次导出请求。参数校验、状态码、响应头与 HEAD 语义集中在这里，
  * 不把日志内容、stderr 或宿主路径回给浏览器。
  * @param {Request} request Fetch 请求（已过宿主的 Host/Origin 与浏览器鉴权栅栏）
- * @param {{ exportSession: (sessionId: string, include?: readonly string[]) => Promise<{ kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' }> }} exporter 导出编排器
+ * @param {{ exportSession: (sessionId: string, include?: readonly string[], imageMode?: string) => Promise<{ kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' }> }} exporter 导出编排器
  * @param {{ logError?: (message: string, error: unknown) => void }} [options]
  * @returns {Promise<Response>}
  */
@@ -44,10 +44,14 @@ export async function handlePdfRequest(request, exporter, options = {}) {
   if (include === null) {
     return textResponse(400, `include 只能包含 ${INCLUDE_TOKENS.join(' 与 ')}，且不得重复`, method, { code: 'request' })
   }
+  const imageMode = parseImageMode(url.searchParams.getAll('image'))
+  if (imageMode === null) {
+    return textResponse(400, `image 只能是 ${IMAGE_MODES.join('、')}`, method, { code: 'request' })
+  }
 
   let result
   try {
-    result = await exporter.exportSession(sessionId, include)
+    result = await exporter.exportSession(sessionId, include, imageMode)
   } catch (error) {
     if (!(error instanceof PdfExportError)) logError(`会话 ${sessionId} 导出时出现未分类错误`, error)
     return errorResponse(error, method)
@@ -56,7 +60,7 @@ export async function handlePdfRequest(request, exporter, options = {}) {
   if (result.kind === 'empty') return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } })
   const headers = {
     'content-type': 'application/pdf',
-    'content-disposition': `${disposition}; filename="${pdfFilename(sessionId, include)}"`,
+    'content-disposition': `${disposition}; filename="${pdfFilename(sessionId, include, imageMode)}"`,
     'content-length': String(result.bytes.byteLength),
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
@@ -79,6 +83,21 @@ function parseInclude(values) {
   if (tokens.some((token) => !INCLUDE_TOKENS.includes(token))) return null
   if (new Set(tokens).size !== tokens.length) return null
   return normalizeInclude(tokens)
+}
+
+/**
+ * 解析 image 查询参数：缺省或空值为 placeholder；只接受三种模式，重复或未知值
+ * 返回 null 由调用方转成 400。
+ * @param {string[]} values 同名的全部 image 参数值
+ * @returns {'none' | 'placeholder' | 'embed' | null}
+ */
+function parseImageMode(values) {
+  if (values.length === 0) return 'placeholder'
+  if (values.length > 1) return null
+  const raw = values[0]
+  if (raw === '') return 'placeholder'
+  if (!IMAGE_MODES.includes(raw)) return null
+  return normalizeImageMode(raw)
 }
 
 function errorResponse(error, method) {

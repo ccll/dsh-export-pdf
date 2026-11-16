@@ -2,7 +2,7 @@
 doc-type: solution
 mutation: living
 owner: agent 主笔，项目属主审批
-核对日期: 2026-11-16
+核对日期: 2026-11-17
 ---
 
 # SOLUTION — 会话导出为 PDF
@@ -43,9 +43,9 @@ owner: agent 主笔，项目属主审批
 |---|---|---|
 | 边界与契约已明确 | 通过 | SOLUTION.md#产品契约 |
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
-| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md |
+| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md, RATIONALE/C-006-image-modes.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
-| 现状差距已有 task 承接 | 通过 | T-001～T-004 已交付既有需求（completed）；R-01-011 由 T-005 承接 |
+| 现状差距已有 task 承接 | 通过 | T-001～T-006 已交付既有需求（completed）；R-01-012 由 T-007 承接 |
 | 可派生验证 | 通过 | SOLUTION.md#产品契约 |
 
 ## 静态架构
@@ -99,6 +99,7 @@ sequenceDiagram
   participant V as PDF 视图页
   participant R as 导出路由
   participant S as 导出服务
+  participant A as 附件服务
   participant B as 浏览器子进程
   U->>V: 选中 PDF 页
   V->>R: HEAD /api/session.pdf?sessionId
@@ -107,6 +108,11 @@ sequenceDiagram
     S-->>R: 已就绪结果
   else 缓存未命中
     S->>S: 折叠转录
+    alt 图片模式为嵌入原图
+      S->>A: readImage(附件引用)
+      A-->>S: 校验后的图片字节或失败
+      S->>S: 失败图片回退为 [图片]
+    end
     S->>B: 打印 HTML 为 PDF
     alt 打印成功
       B-->>S: PDF 字节
@@ -136,6 +142,7 @@ classDiagram
     +序号
     +角色
     +文本
+    +分段（文本或图片引用）
   }
   class 导出结果 {
     +会话标识
@@ -145,7 +152,7 @@ classDiagram
   导出结果 "1" --> "0..*" 转录条目 : 渲染自
 ```
 
-转录条目的类型只有三种：用户消息、助手回复、工具调用。思考块在折叠阶段丢弃，不进入 PDF；工具调用仅在导出选择包含 `tools` 时进入条目列表。
+转录条目的类型只有三种：用户消息、助手回复、工具调用。思考块在折叠阶段丢弃，不进入 PDF；工具调用仅在导出选择包含 `tools` 时进入条目列表。消息条目保留文本与图片分段，图片模式为嵌入时图片分段保存附件引用，渲染前再解析为内联图片。
 
 ### 状态与生命周期图
 
@@ -188,7 +195,8 @@ flowchart LR
 | 方法与路径 | `GET /api/session.pdf`、`HEAD /api/session.pdf` |
 | 参数 `sessionId` | 必填，会话标识；只接受 ASCII 字母、数字与 `.`、`_`、`:`、`-`，长度不超过 200 |
 | 参数 `disposition` | 可选，`inline` 或 `attachment`，缺省 `inline` |
-| 参数 `include` | 可选，逗号分隔的 `tools`、`attachments`；缺省或空串表示只导出消息文本；顺序归一，重复或未知值 `400` |
+| 参数 `include` | 可选，逗号分隔的 `tools`、`attachments`；`attachments` 只控制文件附件占位；缺省或空串表示不加入工具与文件，只保留消息文本与缺省图片占位；顺序归一，重复或未知值 `400` |
+| 参数 `image` | 可选，`placeholder`、`embed` 或 `none`；缺省或空串为 `placeholder`；未知值 `400` |
 | 成功响应 | `200`，`Content-Type: application/pdf`，`Content-Disposition` 取 `disposition` 与带选择后缀的文件名 |
 | 参数缺失或非法 | `400`，纯文本说明 |
 | 会话不存在或日志不可读 | `404`，纯文本说明 |
@@ -198,16 +206,18 @@ flowchart LR
 | 无可用浏览器或缺少中文字体 | `503`，纯文本说明 |
 | 错误机器码 | 所有错误响应带 `x-dsh-export-error`，取值为 `request`、`session`、`subagent`、`font`、`browser`、`render`、`internal` 之一 |
 
-- 文件名固定为 `dsh-session-<会话标识前 8 位>.pdf`；会话标识带 `session-` 公共前缀时先去掉前缀再取 8 位，否则不同会话会得到同一个文件名。选择 `tools` 时追加 `-tools`，选择 `attachments` 时追加 `-attachments`，两者都选时追加 `-tools-attachments`，避免同会话的不同选择互相覆盖。
+- 文件名固定为 `dsh-session-<会话标识前 8 位>.pdf`；会话标识带 `session-` 公共前缀时先去掉前缀再取 8 位，否则不同会话会得到同一个文件名。选择 `tools` 时追加 `-tools`，选择文件附件时追加 `-attachments`，图片模式 `embed` 追加 `-images`，`none` 追加 `-no-images`；多个后缀按 `-tools`、`-attachments`、`-images`/`-no-images` 的顺序拼接，避免同会话的不同选择互相覆盖。
 - `HEAD` 与 `GET` 的校验、状态码与响应头一致，只是不返回正文；浏览器半区用 `x-dsh-export-error` 把无正文的失败映射成具体中文原因。
-- 同一会话同一 `include` 选择的并发请求合并到一次渲染，所有请求拿到同一份字节；不同选择的缓存互不复用。
+- 同一会话同一 `include` 选择与图片模式的并发请求合并到一次渲染，所有请求拿到同一份字节；不同选择或不同图片模式的缓存互不复用。
 
 ## 核心数据与不变量
 
 - 转录条目按 `readSession` 返回的事件顺序排列（日志序号升序），顺序不可重排。
 - 折叠三类条目：用户消息、助手回复、工具调用；思考块在折叠阶段丢弃。
-- 导出选择是内容组成：缺省为空，只保留用户消息与助手回复的文本；`tools` 加入工具调用，`attachments` 加入图片与附件占位。
-- 未选择 `attachments` 时，图片与文件块不产生文本；一条消息若因此没有可渲染文本，不进入条目列表。
+- 导出选择是内容组成：`tools` 加入工具调用，`attachments` 加入文件附件占位；图片由独立的图片模式控制，缺省 `placeholder`。
+- 图片模式 `placeholder` 把图片块降为 `[图片]`，纯图片消息保留；`embed` 保留图片引用并在渲染前嵌入原图，读取失败回退 `[图片]`；`none` 省略图片块与纯图片消息。
+- 文件块只在 `attachments` 选中时产生 `[附件: 文件名]`；文件本体从不嵌入 PDF，纯文件消息未选文件附件时不进入条目列表。
+- 图片嵌入只读取消息附件引用经 `ctx.attachments.readImage` 校验的字节，不读取宿主路径、不按外部 URL 抓取；渲染时缩放到版心内，单图不越出页面边界。
 - 用户消息只取 `source.kind` 为 `user` 的真人输入；运行上下文、技能目录、时间提示等内部注入不进入 PDF，否则导出会夹带整份 Agent 指令。旧格式日志没有 `source` 字段时按真人输入处理，避免历史会话导出为空。
 - 折叠后没有任何条目时按“当前选择下无可导出内容”处理，以 `204` 结束。
 - 工具调用渲染为单行，内容为工具名与参数摘要；未选择 `tools` 时不产生该行。
@@ -221,9 +231,9 @@ flowchart LR
 
 ## 导出状态与生命周期
 
-- 导出结果按“会话标识 + `include` 选择”缓存在宿主内存，条目记录日志长度。
-- 日志长度变化即视为过期，下一次请求重新渲染；选择变化会命中另一条缓存或重新渲染，不复用其它选择的字节。
-- 同一会话同一选择在同一时刻只允许一个渲染任务，其余请求等待该结果。
+- 导出结果按“会话标识 + `include` 选择 + 图片模式”缓存在宿主内存，条目记录日志长度。
+- 日志长度变化即视为过期，下一次请求重新渲染；选择或图片模式变化会命中另一条缓存或重新渲染，不复用其它选择/模式的字节。
+- 同一会话同一选择与图片模式在同一时刻只允许一个渲染任务，其余请求等待该结果。
 - 宿主关闭即丢弃全部结果，不写盘、不恢复。
 
 ## 运行时与失败语义
@@ -231,7 +241,8 @@ flowchart LR
 - 渲染超时取配置值，超时终止子进程并以 `500` 结束，缓存不留半成品。
 - 浏览器可执行文件缺失时立即以 `503` 结束，不启动子进程。
 - 宿主缺少可用的中文字体时立即以 `503` 结束，并说明缺少中文字体。
-- 折叠结果为空（包括默认选择过滤掉全部内容，或只选了 `tools` 但会话没有工具调用）时以 `204` 结束，不启动浏览器，也不写临时文件。
+- 折叠结果为空（包括图片模式为 `none` 且只剩图片消息，或只选了 `tools` 但会话没有工具调用）时以 `204` 结束，不启动浏览器，也不写临时文件。
+- 图片模式为 `embed` 时，单张图片读取失败、字节校验失败或格式不受支持均记录日志并回退为 `[图片]`，不因单图失败中断整份导出。
 - 子会话标识在读取日志后、渲染前被拒绝，以 `400` 结束；不折叠、不打印、不缓存，也不启动浏览器。
 - 子进程以非零码退出时取其标准错误的前若干行作为失败说明，写入宿主日志，响应只给简要原因。
 - 临时 HTML 与 PDF 文件写在系统临时目录，用尽即删，异常路径同样删除。
@@ -240,6 +251,7 @@ flowchart LR
 ## 外部集成
 
 - 会话查询服务：经 `ctx.sessionQuery` 读取会话日志，会话不存在时抛 `SESSION_QUERY_SESSION_NOT_FOUND`。
+- 附件服务：经 `ctx.attachments.readImage(ref)` 读取并校验本会话消息引用的图片字节；只接受日志中的附件引用，不按外部 URL 抓取。
 - 本机浏览器：按配置路径或 PATH 探测名称列表，启动无头模式打印 HTML。
 - 本机字体：探测中文字体是否可用，缺失时拒绝导出而不是输出缺字 PDF。Linux 先执行 `fc-list :lang=zh`，没有 fontconfig 时扫描系统字体目录；探测结果缓存在宿主进程内。
 - 宿主的连接服务：经 `ctx.connection.fetch.register` 注册精确路由，鉴权由该桥提供。
@@ -284,17 +296,18 @@ flowchart LR
 | R-01-009 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.mjs |
 | R-01-010 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.mjs |
 | R-01-011 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/selection.mjs, src/transcript.mjs, src/exporter.mjs, src/route.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs |
+| R-01-012 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/selection.mjs, src/images.mjs, src/transcript.mjs, src/render.mjs, src/exporter.mjs, src/route.mjs, src/naming.mjs, src/host.mjs, src/view.mjs, src/view-state.mjs |
 
 ## 子系统与模块
 
 ### 会话导出
-- 职责: 把一份会话按所选内容组成渲染成 PDF，并在会话页内提供预览与下载（承接 R-01-001～R-01-011）。
+- 职责: 把一份会话按所选内容组成渲染成 PDF，并在会话页内提供预览与下载（承接 R-01-001～R-01-012）。
 - 关键内部结构:
   - 宿主半区注册一条精确路由，承担参数校验、渲染编排、缓存与响应。
   - 浏览器半区注册一个 `conversation.view` 条目，承担预览、内容选择与下载交互；选择变化会取消旧请求并按新选择重取。
-  - 转录折叠与 HTML 渲染是纯函数，仅依赖会话事件与配置。
+  - 转录折叠与 HTML 渲染是纯函数；图片解析经过附件服务，负责把引用转成内联字节并对失败回退占位。
   - 浏览器进程按需启动，一次渲染一个进程，结束即回收。
-- 代码位置: src/selection.mjs, src/host.mjs, src/route.mjs, src/exporter.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs, src/client.mjs
+- 代码位置: src/selection.mjs, src/images.mjs, src/host.mjs, src/route.mjs, src/exporter.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs, src/client.mjs
 - 实现: 双端
 
 ## 横切约束

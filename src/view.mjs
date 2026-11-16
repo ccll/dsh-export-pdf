@@ -11,6 +11,7 @@ export const VIEW_STYLE = `
 .dxp-options { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
 .dxp-check { align-items: center; color: var(--dsw-alias-label-caption, #6b6b6b); display: inline-flex; font-size: 12px; gap: 4px; user-select: none; }
 .dxp-check input { accent-color: var(--dsw-alias-state-business-primary, #2f6fed); margin: 0; }
+.dxp-select { background: var(--dsw-alias-bg-layer-1, #ffffff); border: 1px solid var(--dsw-alias-border-l2, #e3e3e3); border-radius: 6px; color: inherit; font: inherit; font-size: 12px; padding: 2px 4px; }
 .dxp-download { background: var(--dsw-alias-state-business-primary, #2f6fed); border: 0; border-radius: 8px; color: #ffffff; cursor: pointer; font: inherit; font-size: 13px; margin-left: auto; padding: 7px 14px; white-space: nowrap; }
 .dxp-download:hover:not(:disabled) { filter: brightness(0.94); }
 .dxp-download:disabled { cursor: default; opacity: 0.5; }
@@ -25,15 +26,15 @@ export const VIEW_STYLE = `
 @keyframes dxp-spin { to { transform: rotate(360deg); } }
 `
 
-/** 新会话与首次挂载的回显选择：默认只导出消息文本。 */
-const DEFAULT_OPTIONS = { attachments: false, tools: false }
+/** 新会话与首次挂载的回显选择：图片占位，文件与工具不加入。 */
+const DEFAULT_OPTIONS = { files: false, images: 'placeholder', tools: false }
 
 function includeFromOptions(options) {
-  return INCLUDE_TOKENS.filter((token) => options[token] === true)
+  return INCLUDE_TOKENS.filter((token) => (token === 'attachments' ? options.files === true : options[token] === true))
 }
 
 /**
- * PDF 视图页。默认请求最简内容；复选框选择变化时取消旧请求并按新选择重取。
+ * PDF 视图页。默认图片占位、文件与工具不加入；选择变化时取消旧请求并按新选择重取。
  * 会话为空时显示空态且不发请求；否则 HEAD 同源路由，成功后用浏览器原生
  * 查看器预览，下载复用同一份结果与同一组选择。
  * @param {any} props conversation.view 的组合 props（含 sessionId 与 useSession）
@@ -49,6 +50,8 @@ export function PdfView(props) {
   const options = selection.sessionId === sessionId ? selection.options : DEFAULT_OPTIONS
   const include = includeFromOptions(options)
   const includeKey = include.join(',')
+  const imageMode = options.images
+  const viewSelectionKey = selectionKey(include, imageMode)
 
   React.useEffect(() => {
     if (blank === true) {
@@ -60,13 +63,13 @@ export function PdfView(props) {
     let disposed = false
     setState({ kind: 'loading' })
     setDownload({ kind: 'idle' })
-    const url = pdfRouteUrl(sessionId, { include })
+    const url = pdfRouteUrl(sessionId, { include, imageMode })
     fetch(url, { method: 'HEAD', credentials: 'same-origin', signal: controller.signal })
       .then(async (response) => {
         const code = response.headers.get('x-dsh-export-error')
         const classified = classifyExportResponse(response.status, response.ok ? '' : await response.text().catch(() => ''), code)
         if (disposed || controller.signal.aborted) return
-        setState(classified.kind === 'ready' ? { kind: 'ready', sessionId, url, filename: pdfFilename(sessionId, include), includeKey } : classified)
+        setState(classified.kind === 'ready' ? { kind: 'ready', sessionId, url, filename: pdfFilename(sessionId, include, imageMode), selectionKey: viewSelectionKey } : classified)
       })
       .catch(() => {
         if (disposed || controller.signal.aborted) return
@@ -76,7 +79,7 @@ export function PdfView(props) {
       disposed = true
       controller.abort()
     }
-  }, [sessionId, blank, attempt, includeKey])
+  }, [sessionId, blank, attempt, viewSelectionKey])
 
   // 选择或会话变化时取消在途下载，避免旧选择的文件在切换后落盘（R-01-011/AC-04）。
   React.useEffect(() => () => {
@@ -84,17 +87,17 @@ export function PdfView(props) {
       downloadAbort.current.abort()
       downloadAbort.current = null
     }
-  }, [sessionId, includeKey])
+  }, [sessionId, viewSelectionKey])
 
   const downloadPdf = React.useCallback(async () => {
-    if (state.kind !== 'ready' || state.sessionId !== sessionId || state.includeKey !== includeKey) return
+    if (state.kind !== 'ready' || state.sessionId !== sessionId || state.selectionKey !== viewSelectionKey) return
     if (downloadAbort.current !== null) downloadAbort.current.abort()
     const controller = new AbortController()
     downloadAbort.current = controller
     setDownload({ kind: 'loading' })
     try {
       const selectedInclude = includeKey === '' ? [] : includeKey.split(',')
-      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude }), {
+      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude, imageMode }), {
         credentials: 'same-origin',
         signal: controller.signal,
       })
@@ -125,9 +128,9 @@ export function PdfView(props) {
     } finally {
       if (downloadAbort.current === controller) downloadAbort.current = null
     }
-  }, [state, sessionId, includeKey])
+  }, [state, sessionId, viewSelectionKey, imageMode])
 
-  const ready = state.kind === 'ready' && state.sessionId === sessionId && state.includeKey === includeKey
+  const ready = state.kind === 'ready' && state.sessionId === sessionId && state.selectionKey === viewSelectionKey
   const statusText = state.kind === 'error' ? '导出失败' : state.kind === 'empty' ? '' : ready ? READY_TEXT : GENERATING_TEXT
   const buttonText = !ready ? DOWNLOAD_TEXT : download.kind === 'loading' ? DOWNLOADING_TEXT : DOWNLOAD_TEXT
   const displayState = ready || state.kind === 'empty' || state.kind === 'error' ? state : { kind: 'loading' }
@@ -146,6 +149,23 @@ export function PdfView(props) {
       }),
       label,
     )
+  const imageOption = React.createElement(
+    'label',
+    { className: 'dxp-check' },
+    '图片',
+    React.createElement(
+      'select',
+      {
+        className: 'dxp-select',
+        value: options.images,
+        'aria-label': '图片模式',
+        onChange: (event) => setOption('images', event.target.value),
+      },
+      React.createElement('option', { value: 'placeholder' }, '占位'),
+      React.createElement('option', { value: 'embed' }, '嵌入原图'),
+      React.createElement('option', { value: 'none' }, '不导出'),
+    ),
+  )
 
   return React.createElement(
     'section',
@@ -157,8 +177,9 @@ export function PdfView(props) {
       React.createElement(
         'div',
         { className: 'dxp-options', role: 'group', 'aria-label': '导出内容' },
+        imageOption,
+        option('files', '文件附件'),
         option('tools', '工具调用摘要'),
-        option('attachments', '附件占位'),
       ),
       React.createElement('button', { type: 'button', className: 'dxp-download', disabled: !ready || download.kind === 'loading', onClick: downloadPdf }, buttonText),
     ),

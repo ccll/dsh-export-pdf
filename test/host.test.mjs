@@ -22,6 +22,9 @@ function fakeContext() {
           events: [{ type: 'user/message', seq: 1, time: 1, data: { source: { kind: 'user' }, content: [{ type: 'text', text: '你好' }] } }],
         }),
       },
+      attachments: {
+        readImage: async () => ({ data: new Uint8Array([1]), ref: { attachmentId: 'sha256:img', mediaType: 'image/png', bytes: 1 } }),
+      },
     },
   }
 }
@@ -29,7 +32,7 @@ function fakeContext() {
 test('宿主插件注册 GET/HEAD /api/session.pdf 到鉴权通道', () => {
   const { ctx, routes } = fakeContext()
   assert.equal(name, 'dsh-export-pdf')
-  assert.deepEqual(inject, ['connection', 'sessionQuery'])
+  assert.deepEqual(inject, ['connection', 'sessionQuery', 'attachments'])
   apply(ctx, {})
   assert.equal(routes.length, 1)
   assert.equal(routes[0].path, SESSION_PDF_PATH)

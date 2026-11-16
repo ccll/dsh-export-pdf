@@ -66,12 +66,26 @@ main { display: block; }
   width: 100%;
 }
 .tool-name { font-weight: 600; }
+.inline-image { margin: 1.5mm 0; page-break-inside: avoid; }
+.inline-image img { border: 0.3mm solid #d8d8d8; display: block; height: auto; max-height: 120mm; max-width: 100%; object-fit: contain; }
 `
+
+function renderBody(entry) {
+  const parts = Array.isArray(entry.parts) ? entry.parts : [{ type: 'text', text: entry.text }]
+  return parts
+    .map((part) => {
+      if (part?.type !== 'image') return escapeHtml(part?.text)
+      // dataUrl 只由导出器的附件解析器生成；非 data:image 值一律回退占位，避免注入。
+      if (typeof part.dataUrl !== 'string' || !part.dataUrl.startsWith('data:image/')) return escapeHtml('[图片]')
+      return `<figure class="inline-image"><img src="${escapeHtml(part.dataUrl)}" alt="图片"></figure>`
+    })
+    .join('\n')
+}
 
 /**
  * 把转录条目渲染成完整的 HTML 文档。文档内容只来自转录：不含会话标题、
  * 会话标识、时间戳、页眉页脚与页码（C-002）。
- * @param {readonly { kind: string, text?: string, name?: string, summary?: string }[]} entries 转录条目
+ * @param {readonly { kind: string, text?: string, parts?: readonly any[], name?: string, summary?: string }[]} entries 转录条目
  * @returns {string}
  */
 export function renderTranscriptHtml(entries) {
@@ -79,11 +93,11 @@ export function renderTranscriptHtml(entries) {
   for (const entry of entries) {
     if (entry.kind === 'user') {
       blocks.push(
-        `<section class="entry user"><div class="role"><span>用户</span>${USER_ICON}</div><div class="body">${escapeHtml(entry.text)}</div></section>`,
+        `<section class="entry user"><div class="role"><span>用户</span>${USER_ICON}</div><div class="body">${renderBody(entry)}</div></section>`,
       )
     } else if (entry.kind === 'assistant') {
       blocks.push(
-        `<section class="entry assistant"><div class="role">${ASSISTANT_ICON}<span>助手</span></div><div class="body">${escapeHtml(entry.text)}</div></section>`,
+        `<section class="entry assistant"><div class="role">${ASSISTANT_ICON}<span>助手</span></div><div class="body">${renderBody(entry)}</div></section>`,
       )
     } else if (entry.kind === 'tool') {
       const args = entry.summary === undefined || entry.summary === '' ? '' : ` <span class="tool-args">${escapeHtml(entry.summary)}</span>`

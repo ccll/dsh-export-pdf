@@ -1,4 +1,4 @@
-import { normalizeInclude } from './selection.mjs'
+import { normalizeImageMode, normalizeInclude } from './selection.mjs'
 
 /** 工具调用参数摘要的最大字符数。 */
 export const TOOL_ARGUMENT_SUMMARY_MAX = 160
@@ -19,26 +19,55 @@ export function isHumanUserMessage(event) {
 }
 
 /**
- * 从消息内容块里取可读文本：text 原样保留，图片与文件在包含附件占位时
- * 降为占位符，reasoning 与 tool-call 块不进入正文。
+ * 把消息内容块拆成可渲染分段：文本原样保留；图片按模式省略、占位或保留
+ * 附件引用；文件仅在选中文件附件时降为占位。reasoning 与 tool-call 块忽略。
  * @param {readonly any[] | undefined} blocks 内容块
- * @param {{ includeAttachments?: boolean }} [options]
+ * @param {{ imageMode?: unknown, includeFiles?: boolean }} [options]
+ * @returns {Array<{ type: 'text', text: string } | { type: 'image', attachment: any }>}
+ */
+export function messageParts(blocks, options = {}) {
+  const imageMode = normalizeImageMode(options.imageMode)
+  const includeFiles = options.includeFiles ?? true
+  const parts = []
+  for (const block of blocks ?? []) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      parts.push({ type: 'text', text: block.text })
+    } else if (block?.type === 'image' && imageMode !== 'none') {
+      if (imageMode === 'embed') parts.push({ type: 'image', attachment: block.attachment })
+      else parts.push({ type: 'text', text: '[图片]' })
+    } else if (block?.type === 'file' && includeFiles) {
+      const name = block.attachment?.name
+      parts.push({ type: 'text', text: typeof name === 'string' && name !== '' ? `[附件: ${name}]` : '[附件]' })
+    }
+  }
+  return parts
+}
+
+/**
+ * 取分段里的文本部分，按原块顺序用换行连接；图片分段不产生文本。
+ * @param {readonly { type: string, text?: string }[]} parts 内容分段
+ * @returns {string}
+ */
+export function partsText(parts) {
+  return parts
+    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('\n')
+    .trim()
+}
+
+/**
+ * 从消息内容块里取可读文本：默认图片与文件都降为占位；显式 imageMode 优先，
+ * includeFiles 可独立关闭文件占位。
+ * @param {readonly any[] | undefined} blocks 内容块
+ * @param {{ includeAttachments?: boolean, includeFiles?: boolean, imageMode?: unknown }} [options]
  * @returns {string}
  */
 export function messageText(blocks, options = {}) {
   const includeAttachments = options.includeAttachments ?? true
-  const parts = []
-  for (const block of blocks ?? []) {
-    if (block?.type === 'text' && typeof block.text === 'string') {
-      parts.push(block.text)
-    } else if (block?.type === 'image' && includeAttachments) {
-      parts.push('[图片]')
-    } else if (block?.type === 'file' && includeAttachments) {
-      const name = block.attachment?.name
-      parts.push(typeof name === 'string' && name !== '' ? `[附件: ${name}]` : '[附件]')
-    }
-  }
-  return parts.join('\n').trim()
+  const imageMode = options.imageMode ?? (includeAttachments ? 'placeholder' : 'none')
+  const includeFiles = options.includeFiles ?? includeAttachments
+  return partsText(messageParts(blocks, { imageMode, includeFiles }))
 }
 
 /**
@@ -73,27 +102,34 @@ export function summarizeToolArguments(raw) {
 }
 
 /**
- * 按会话日志顺序折叠转录。缺省只保留用户与助手文本；`tools` 加入工具调用，
- * `attachments` 把图片/文件转为占位。思考块、工具结果与失败尝试不进入结果。
+ * 按会话日志顺序折叠转录。默认图片占位、文件不加入；`tools` 加入工具调用，
+ * `attachments` 只加入文件附件占位，`imageMode` 控制图片的不导出/占位/嵌入。
  * @param {readonly any[]} events `sessionQuery.readSession` 返回的事件数组
- * @param {{ include?: readonly string[] }} [options] 导出内容选择
- * @returns {Array<{ kind: 'user' | 'assistant' | 'tool', seq: number, text?: string, name?: string, summary?: string }>}
+ * @param {{ include?: readonly string[], imageMode?: unknown }} [options] 导出内容选择
+ * @returns {Array<{ kind: 'user' | 'assistant', seq: number, text?: string, parts?: any[] } | { kind: 'tool', seq: number, name: string, summary: string }>}
  */
 export function foldTranscript(events, options = {}) {
   const include = new Set(normalizeInclude(options.include))
-  const includeAttachments = include.has('attachments')
+  const imageMode = normalizeImageMode(options.imageMode)
+  const includeFiles = include.has('attachments')
   const entries = []
+  const pushMessage = (kind, seq, blocks) => {
+    const parts = messageParts(blocks, { imageMode, includeFiles })
+    const hasImage = parts.some((part) => part.type === 'image')
+    const text = partsText(parts)
+    if (text === '' && !hasImage) return
+    entries.push({ kind, seq, text, ...(hasImage ? { parts } : {}) })
+  }
+
   for (const event of events ?? []) {
     switch (event?.type) {
       case 'user/message': {
         if (!isHumanUserMessage(event)) break
-        const text = messageText(event.data?.content, { includeAttachments })
-        if (text !== '') entries.push({ kind: 'user', seq: event.seq, text })
+        pushMessage('user', event.seq, event.data?.content)
         break
       }
       case 'assistant/message': {
-        const text = messageText(event.data?.message?.content, { includeAttachments })
-        if (text !== '') entries.push({ kind: 'assistant', seq: event.seq, text })
+        pushMessage('assistant', event.seq, event.data?.message?.content)
         break
       }
       case 'tool/call': {
@@ -109,6 +145,7 @@ export function foldTranscript(events, options = {}) {
   }
   return entries
 }
+
 
 function truncate(value, maximum) {
   return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`

@@ -12,6 +12,7 @@ import { clickPdfTab, expectedPdfPrefix, newestSessionLog, openApp, sendHeroMess
 //           R-01-004/AC-01 R-01-005/AC-01 R-01-005/AC-02
 //           R-01-006/AC-03 R-01-007/AC-01 R-01-007/AC-02
 //           R-01-008/AC-01 R-01-008/AC-02 R-01-011/AC-04 R-01-011/AC-06
+//           R-01-012/AC-05
 // 一次真实会话的 PDF 页：页签、生成中、预览、下载、A4/中文、只读、
 // 无凭据拒绝与同源栅栏。
 const PAGINATION_MARKER = '末段标记Z'
@@ -165,11 +166,13 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     await rm(directory, { recursive: true, force: true })
   }
 
-  // R-01-011/AC-04、AC-06：复选框选择驱动预览地址与下载文件名。
+  // R-01-011/AC-04、AC-06 与 R-01-012/AC-05：选择驱动预览地址与下载文件名。
   const toolsBox = page.getByRole('checkbox', { name: '工具调用摘要' })
-  const attachmentsBox = page.getByRole('checkbox', { name: '附件占位' })
+  const filesBox = page.getByRole('checkbox', { name: '文件附件' })
+  const imagesSelect = page.getByLabel('图片模式')
   assertEqual(await toolsBox.isChecked(), false, '默认不勾选工具调用摘要')
-  assertEqual(await attachmentsBox.isChecked(), false, '默认不勾选附件占位')
+  assertEqual(await filesBox.isChecked(), false, '默认不勾选文件附件')
+  assertEqual(await imagesSelect.inputValue(), 'placeholder', '默认图片模式为占位')
 
   const setSelection = async (box, checked, includeToken, filenameSuffix) => {
     const responsePromise = page.waitForResponse(
@@ -205,10 +208,47 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     }
   }
 
+  const setImageSelection = async (value, suffix) => {
+    const responsePromise = page.waitForResponse(
+      (response) => {
+        if (!response.url().includes('/api/session.pdf') || response.request().method() !== 'GET') return false
+        return value === 'placeholder' ? !response.url().includes('image=') : response.url().includes(`image=${value}`)
+      },
+      { timeout: 60_000 },
+    )
+    await imagesSelect.selectOption(value)
+    // 回到占位可能命中缓存，状态来不及在轮询窗口内保持 disabled；其它模式要求可见生成态。
+    if (value !== 'placeholder') {
+      await page.waitForFunction(() => document.querySelector('.dxp-download')?.disabled === true, null, { timeout: 5_000 })
+      assertEqual(await downloadButton.isDisabled(), true, `${value} 生成中下载按钮不可用`)
+    }
+    assertEqual((await responsePromise).status(), 200, `${value} 预览请求成功`)
+    await page.getByText('预览已就绪', { exact: false }).first().waitFor({ timeout: 30_000 })
+    const selectedSource = await iframe.getAttribute('src')
+    if (value === 'placeholder') assertOk(!selectedSource.includes('image='), '占位模式不携带 image 参数')
+    else assertOk(selectedSource.includes(`image=${value}`), `${value} 模式进入预览地址`)
+    await until('下载按钮可用', async () => downloadButton.isEnabled().catch(() => false), 20_000)
+    const [selectedDownload] = await Promise.all([page.waitForEvent('download'), downloadButton.click()])
+    assertEqual(selectedDownload.suggestedFilename(), expectedPdfPrefix(sessionId, suffix))
+    const selectedDirectory = await mkdtemp(join(tmpdir(), 'dsh-pdf-e2e-image-'))
+    try {
+      const selectedPath = join(selectedDirectory, selectedDownload.suggestedFilename())
+      await selectedDownload.saveAs(selectedPath)
+      const previewBytes = await (await page.request.get(selectedSource)).body()
+      const downloadBytes = await readFile(selectedPath)
+      assertEqual(Buffer.compare(previewBytes, downloadBytes), 0, `${value} 预览与下载同字节`)
+    } finally {
+      await rm(selectedDirectory, { recursive: true, force: true })
+    }
+  }
+
   await setSelection(toolsBox, true, 'tools', '-tools')
   await setSelection(toolsBox, false, null, '')
-  await setSelection(attachmentsBox, true, 'attachments', '-attachments')
-  await setSelection(attachmentsBox, false, null, '')
+  await setSelection(filesBox, true, 'attachments', '-attachments')
+  await setSelection(filesBox, false, null, '')
+  await setImageSelection('embed', '-images')
+  await setImageSelection('none', '-no-images')
+  await setImageSelection('placeholder', '')
 
   // R-01-007/AC-01：导出不得改变会话日志字节。
   assertEqual(await sessionLogDigest(stableLog.path), stableLog.digest, '导出前后会话日志字节一致')

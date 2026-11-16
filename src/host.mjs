@@ -7,7 +7,7 @@ import { SESSION_PDF_PATH, handlePdfRequest } from './route.mjs'
 /** 宿主插件名，与 cordis.patch.yml 的插入行一致。 */
 export const name = 'dsh-export-pdf'
 /** 导出只依赖鉴权路由桥与会话查询服务；日志走宿主 logger。 */
-export const inject = ['connection', 'sessionQuery']
+export const inject = ['connection', 'sessionQuery', 'attachments']
 
 /**
  * 注册 `/api/session.pdf` 路由。路由本身由 Connection 的 `/api` 桥完成
@@ -26,6 +26,7 @@ export function apply(ctx, rawConfig = {}) {
 
   const exporter = createExporter({
     readSession: (sessionId) => ctx.sessionQuery.readSession(sessionId),
+    readImage: (ref) => ctx.attachments.readImage(ref),
     renderPdf: async (html) => {
       const browserPath = await resolveBrowserPath(config.browserPath)
       return renderPdfWithBrowser({ html, browserPath, timeoutMs: config.timeoutMs })

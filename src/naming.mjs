@@ -1,4 +1,4 @@
-import { includeSuffix } from './selection.mjs'
+import { imageModeSuffix, includeSuffix } from './selection.mjs'
 
 /**
  * 导出文件名固定为 `dsh-session-<会话标识前 8 位>.pdf`（SOLUTION#产品契约）。
@@ -6,12 +6,13 @@ import { includeSuffix } from './selection.mjs'
  * 会得到同一个文件名，不满足 R-01-003/AC-01 的“包含会话标识”。
  * 附加内容选择按固定顺序追加后缀，避免同会话不同选择互相覆盖。
  * @param {string} sessionId 会话标识
- * @param {readonly string[]} [include] 导出内容选择
+ * @param {readonly string[]} [include] 工具与文件附件选择
+ * @param {unknown} [imageMode] 图片模式
  * @returns {string} 下载文件名
  */
-export function pdfFilename(sessionId, include = []) {
+export function pdfFilename(sessionId, include = [], imageMode = 'placeholder') {
   const raw = String(sessionId)
   const identity = raw.startsWith('session-') ? raw.slice('session-'.length) : raw
   const prefix = identity === '' ? raw : identity
-  return `dsh-session-${prefix.slice(0, 8)}${includeSuffix(include)}.pdf`
+  return `dsh-session-${prefix.slice(0, 8)}${includeSuffix(include)}${imageModeSuffix(imageMode)}.pdf`
 }

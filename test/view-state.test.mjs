@@ -1,4 +1,4 @@
-// 测试锚点: R-01-001/AC-03 R-01-002/AC-02 R-01-011/AC-04 R-01-011/AC-05
+// 测试锚点: R-01-001/AC-03 R-01-002/AC-02 R-01-011/AC-04 R-01-011/AC-05 R-01-012/AC-05
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { EMPTY_TEXT, FILTERED_EMPTY_TEXT, classifyExportResponse, initialViewState, messageForErrorCode, messageForStatus, pdfRouteUrl, viewNoticeText } from '../src/view-state.mjs'
@@ -21,6 +21,19 @@ test('导出地址按 document base 解析并编码会话标识', () => {
   assert.equal(
     pdfRouteUrl('s', { base: BASE, include: ['attachments', 'tools'] }),
     'http://127.0.0.1:3080/api/session.pdf?sessionId=s&disposition=inline&include=tools%2Cattachments',
+  )
+  assert.equal(
+    pdfRouteUrl('s', { base: BASE, imageMode: 'placeholder' }),
+    'http://127.0.0.1:3080/api/session.pdf?sessionId=s&disposition=inline',
+    '缺省占位不写 image 参数',
+  )
+  assert.equal(
+    pdfRouteUrl('s', { base: BASE, imageMode: 'embed' }),
+    'http://127.0.0.1:3080/api/session.pdf?sessionId=s&disposition=inline&image=embed',
+  )
+  assert.equal(
+    pdfRouteUrl('s', { base: BASE, include: ['attachments'], imageMode: 'none' }),
+    'http://127.0.0.1:3080/api/session.pdf?sessionId=s&disposition=inline&include=attachments&image=none',
   )
 })
 

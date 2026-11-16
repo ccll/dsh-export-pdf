@@ -7,6 +7,8 @@ window.__ModuleLoader__.load({
     const React = require("react");
 /** 导出内容选择的 token 顺序与文件名后缀集中在这里；新增类型仍需接入视图文案。 */
 const INCLUDE_TOKENS = ['tools', 'attachments']
+/** 图片呈现模式；缺省为占位。 */
+const IMAGE_MODES = ['none', 'placeholder', 'embed']
 
 /**
  * 把合法 token 归一为固定顺序，丢弃未知值；路由负责在边界上报错。
@@ -30,6 +32,35 @@ function includeSuffix(value) {
   return tools && attachments ? '-tools-attachments' : tools ? '-tools' : attachments ? '-attachments' : ''
 }
 
+/**
+ * 归一图片模式，未知值退回缺省占位；路由负责在边界上报错。
+ * @param {unknown} value 原始模式
+ * @returns {'none' | 'placeholder' | 'embed'}
+ */
+function normalizeImageMode(value) {
+  return IMAGE_MODES.includes(value) ? value : 'placeholder'
+}
+
+/**
+ * 图片模式的文件名后缀：占位是缺省，不追加；嵌入与不导出追加可区分后缀。
+ * @param {unknown} value 原始模式
+ * @returns {string}
+ */
+function imageModeSuffix(value) {
+  const mode = normalizeImageMode(value)
+  return mode === 'embed' ? '-images' : mode === 'none' ? '-no-images' : ''
+}
+
+/**
+ * 视图/缓存使用的选择键：包含工具、文件与图片模式，避免不同模式互相复用。
+ * @param {readonly string[]} include 归一后的工具/文件选择
+ * @param {unknown} imageMode 图片模式
+ * @returns {string}
+ */
+function selectionKey(include, imageMode) {
+  return `${normalizeImageMode(imageMode)}\u0000${include.join(',')}`
+}
+
 
 /**
  * 导出文件名固定为 `dsh-session-<会话标识前 8 位>.pdf`（SOLUTION#产品契约）。
@@ -37,14 +68,15 @@ function includeSuffix(value) {
  * 会得到同一个文件名，不满足 R-01-003/AC-01 的“包含会话标识”。
  * 附加内容选择按固定顺序追加后缀，避免同会话不同选择互相覆盖。
  * @param {string} sessionId 会话标识
- * @param {readonly string[]} [include] 导出内容选择
+ * @param {readonly string[]} [include] 工具与文件附件选择
+ * @param {unknown} [imageMode] 图片模式
  * @returns {string} 下载文件名
  */
-function pdfFilename(sessionId, include = []) {
+function pdfFilename(sessionId, include = [], imageMode = 'placeholder') {
   const raw = String(sessionId)
   const identity = raw.startsWith('session-') ? raw.slice('session-'.length) : raw
   const prefix = identity === '' ? raw : identity
-  return `dsh-session-${prefix.slice(0, 8)}${includeSuffix(include)}.pdf`
+  return `dsh-session-${prefix.slice(0, 8)}${includeSuffix(include)}${imageModeSuffix(imageMode)}.pdf`
 }
 
 
@@ -75,7 +107,7 @@ const ERROR_MESSAGES = {
  * 因此按 document.baseURI 解析成部署前缀下的绝对地址；与宿主其他
  * document-relative 路由一致。
  * @param {string} sessionId 会话标识
- * @param {{ base?: string, disposition?: 'inline' | 'attachment', include?: readonly string[] }} [options]
+ * @param {{ base?: string, disposition?: 'inline' | 'attachment', include?: readonly string[], imageMode?: unknown }} [options]
  * @returns {string}
  */
 function pdfRouteUrl(sessionId, options = {}) {
@@ -83,8 +115,10 @@ function pdfRouteUrl(sessionId, options = {}) {
   const disposition = options.disposition ?? 'inline'
   const include = normalizeInclude(options.include)
   const includeQuery = include.length === 0 ? '' : `&include=${encodeURIComponent(include.join(','))}`
+  const imageMode = normalizeImageMode(options.imageMode)
+  const imageQuery = imageMode === 'placeholder' ? '' : `&image=${encodeURIComponent(imageMode)}`
   return new URL(
-    `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}${includeQuery}`,
+    `api/session.pdf?sessionId=${encodeURIComponent(sessionId)}&disposition=${encodeURIComponent(disposition)}${includeQuery}${imageQuery}`,
     base,
   ).href
 }
@@ -164,6 +198,7 @@ const VIEW_STYLE = `
 .dxp-options { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
 .dxp-check { align-items: center; color: var(--dsw-alias-label-caption, #6b6b6b); display: inline-flex; font-size: 12px; gap: 4px; user-select: none; }
 .dxp-check input { accent-color: var(--dsw-alias-state-business-primary, #2f6fed); margin: 0; }
+.dxp-select { background: var(--dsw-alias-bg-layer-1, #ffffff); border: 1px solid var(--dsw-alias-border-l2, #e3e3e3); border-radius: 6px; color: inherit; font: inherit; font-size: 12px; padding: 2px 4px; }
 .dxp-download { background: var(--dsw-alias-state-business-primary, #2f6fed); border: 0; border-radius: 8px; color: #ffffff; cursor: pointer; font: inherit; font-size: 13px; margin-left: auto; padding: 7px 14px; white-space: nowrap; }
 .dxp-download:hover:not(:disabled) { filter: brightness(0.94); }
 .dxp-download:disabled { cursor: default; opacity: 0.5; }
@@ -178,15 +213,15 @@ const VIEW_STYLE = `
 @keyframes dxp-spin { to { transform: rotate(360deg); } }
 `
 
-/** 新会话与首次挂载的回显选择：默认只导出消息文本。 */
-const DEFAULT_OPTIONS = { attachments: false, tools: false }
+/** 新会话与首次挂载的回显选择：图片占位，文件与工具不加入。 */
+const DEFAULT_OPTIONS = { files: false, images: 'placeholder', tools: false }
 
 function includeFromOptions(options) {
-  return INCLUDE_TOKENS.filter((token) => options[token] === true)
+  return INCLUDE_TOKENS.filter((token) => (token === 'attachments' ? options.files === true : options[token] === true))
 }
 
 /**
- * PDF 视图页。默认请求最简内容；复选框选择变化时取消旧请求并按新选择重取。
+ * PDF 视图页。默认图片占位、文件与工具不加入；选择变化时取消旧请求并按新选择重取。
  * 会话为空时显示空态且不发请求；否则 HEAD 同源路由，成功后用浏览器原生
  * 查看器预览，下载复用同一份结果与同一组选择。
  * @param {any} props conversation.view 的组合 props（含 sessionId 与 useSession）
@@ -202,6 +237,8 @@ function PdfView(props) {
   const options = selection.sessionId === sessionId ? selection.options : DEFAULT_OPTIONS
   const include = includeFromOptions(options)
   const includeKey = include.join(',')
+  const imageMode = options.images
+  const viewSelectionKey = selectionKey(include, imageMode)
 
   React.useEffect(() => {
     if (blank === true) {
@@ -213,13 +250,13 @@ function PdfView(props) {
     let disposed = false
     setState({ kind: 'loading' })
     setDownload({ kind: 'idle' })
-    const url = pdfRouteUrl(sessionId, { include })
+    const url = pdfRouteUrl(sessionId, { include, imageMode })
     fetch(url, { method: 'HEAD', credentials: 'same-origin', signal: controller.signal })
       .then(async (response) => {
         const code = response.headers.get('x-dsh-export-error')
         const classified = classifyExportResponse(response.status, response.ok ? '' : await response.text().catch(() => ''), code)
         if (disposed || controller.signal.aborted) return
-        setState(classified.kind === 'ready' ? { kind: 'ready', sessionId, url, filename: pdfFilename(sessionId, include), includeKey } : classified)
+        setState(classified.kind === 'ready' ? { kind: 'ready', sessionId, url, filename: pdfFilename(sessionId, include, imageMode), selectionKey: viewSelectionKey } : classified)
       })
       .catch(() => {
         if (disposed || controller.signal.aborted) return
@@ -229,7 +266,7 @@ function PdfView(props) {
       disposed = true
       controller.abort()
     }
-  }, [sessionId, blank, attempt, includeKey])
+  }, [sessionId, blank, attempt, viewSelectionKey])
 
   // 选择或会话变化时取消在途下载，避免旧选择的文件在切换后落盘（R-01-011/AC-04）。
   React.useEffect(() => () => {
@@ -237,17 +274,17 @@ function PdfView(props) {
       downloadAbort.current.abort()
       downloadAbort.current = null
     }
-  }, [sessionId, includeKey])
+  }, [sessionId, viewSelectionKey])
 
   const downloadPdf = React.useCallback(async () => {
-    if (state.kind !== 'ready' || state.sessionId !== sessionId || state.includeKey !== includeKey) return
+    if (state.kind !== 'ready' || state.sessionId !== sessionId || state.selectionKey !== viewSelectionKey) return
     if (downloadAbort.current !== null) downloadAbort.current.abort()
     const controller = new AbortController()
     downloadAbort.current = controller
     setDownload({ kind: 'loading' })
     try {
       const selectedInclude = includeKey === '' ? [] : includeKey.split(',')
-      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude }), {
+      const response = await fetch(pdfRouteUrl(sessionId, { disposition: 'attachment', include: selectedInclude, imageMode }), {
         credentials: 'same-origin',
         signal: controller.signal,
       })
@@ -278,9 +315,9 @@ function PdfView(props) {
     } finally {
       if (downloadAbort.current === controller) downloadAbort.current = null
     }
-  }, [state, sessionId, includeKey])
+  }, [state, sessionId, viewSelectionKey, imageMode])
 
-  const ready = state.kind === 'ready' && state.sessionId === sessionId && state.includeKey === includeKey
+  const ready = state.kind === 'ready' && state.sessionId === sessionId && state.selectionKey === viewSelectionKey
   const statusText = state.kind === 'error' ? '导出失败' : state.kind === 'empty' ? '' : ready ? READY_TEXT : GENERATING_TEXT
   const buttonText = !ready ? DOWNLOAD_TEXT : download.kind === 'loading' ? DOWNLOADING_TEXT : DOWNLOAD_TEXT
   const displayState = ready || state.kind === 'empty' || state.kind === 'error' ? state : { kind: 'loading' }
@@ -299,6 +336,23 @@ function PdfView(props) {
       }),
       label,
     )
+  const imageOption = React.createElement(
+    'label',
+    { className: 'dxp-check' },
+    '图片',
+    React.createElement(
+      'select',
+      {
+        className: 'dxp-select',
+        value: options.images,
+        'aria-label': '图片模式',
+        onChange: (event) => setOption('images', event.target.value),
+      },
+      React.createElement('option', { value: 'placeholder' }, '占位'),
+      React.createElement('option', { value: 'embed' }, '嵌入原图'),
+      React.createElement('option', { value: 'none' }, '不导出'),
+    ),
+  )
 
   return React.createElement(
     'section',
@@ -310,8 +364,9 @@ function PdfView(props) {
       React.createElement(
         'div',
         { className: 'dxp-options', role: 'group', 'aria-label': '导出内容' },
+        imageOption,
+        option('files', '文件附件'),
         option('tools', '工具调用摘要'),
-        option('attachments', '附件占位'),
       ),
       React.createElement('button', { type: 'button', className: 'dxp-download', disabled: !ready || download.kind === 'loading', onClick: downloadPdf }, buttonText),
     ),
