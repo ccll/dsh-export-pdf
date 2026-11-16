@@ -1,5 +1,9 @@
 node_modules/
+.dsh-plugin/
+.staging/
+.cache/
+.chrome-debug*/
+tmp/
 tools/__pycache__/
 *.pyc
-.dsh-plugin/
-tmp/
+e2e/fail-*.png
