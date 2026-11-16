@@ -45,11 +45,12 @@ test('用户与助手角色标签各带一个内联 SVG 图标', () => {
   ])
   const userSection = /<section class="entry user">([\s\S]*?)<\/section>/.exec(html)?.[1] ?? ''
   const assistantSection = /<section class="entry assistant">([\s\S]*?)<\/section>/.exec(html)?.[1] ?? ''
-  assert.match(userSection, /data-role-icon="user"/)
-  assert.match(userSection, /<span>用户<\/span>/)
-  assert.match(assistantSection, /data-role-icon="assistant"/)
-  assert.match(assistantSection, /<span>助手<\/span>/)
-  assert.equal((html.match(/data-role-icon=/g) ?? []).length, 2, '每条消息只带一个角色图标')
+  assert.match(userSection, /<svg class="avatar" data-role-icon="user"/)
+  assert.match(assistantSection, /<svg class="avatar" data-role-icon="assistant"/)
+  assert.equal((userSection.match(/data-role-icon=/g) ?? []).length, 1, '用户消息只带一个图标')
+  assert.equal((assistantSection.match(/data-role-icon=/g) ?? []).length, 1, '助手回复只带一个图标')
+  assert.ok(userSection.indexOf('data-role-icon="user"') > userSection.indexOf('<span>用户</span>'), '用户图标应在文字右侧')
+  assert.ok(assistantSection.indexOf('data-role-icon="assistant"') < assistantSection.indexOf('<span>助手</span>'), '助手图标应在文字左侧')
   assert.doesNotMatch(html, /<img|https?:\/\//, '图标不得依赖位图或外部资源')
 })
 
