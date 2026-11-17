@@ -44,7 +44,7 @@ id: T-009
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
 | 成功 | 适用：窄视口显示完整 PDF 打开入口 | `e2e/specs/pdf-export.mjs::R-01-013/AC-01` |
-| 异常 | 适用：生成中/失败不显示可点击打开 | `test/view-state.test.mjs::R-01-013/AC-03`、`e2e/specs/pdf-failure.mjs::R-01-013/AC-03` |
+| 异常 | 适用：失败不显示可点击打开 | `e2e/specs/pdf-failure.mjs::R-01-013/AC-03` |
 | 边界配置 | 适用：断点上下切换 iframe 与链接 | `e2e/specs/pdf-export.mjs::R-01-013/AC-04` |
 | 副作用 | 适用：链接与下载共用同一份 PDF/文件名，不重复渲染 | `e2e/specs/pdf-export.mjs::R-01-013/AC-05` |
 | 安全 | 适用：新标签页链接同源且 noopener | `e2e/specs/pdf-export.mjs::R-01-013/AC-02` |

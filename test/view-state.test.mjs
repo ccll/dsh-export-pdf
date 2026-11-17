@@ -1,10 +1,10 @@
-// 测试锚点: R-01-001/AC-03 R-01-002/AC-02 R-01-011/AC-04 R-01-011/AC-05 R-01-012/AC-05 R-01-013/AC-01 R-01-013/AC-03
+// 测试锚点: R-01-001/AC-03 R-01-002/AC-02 R-01-011/AC-04 R-01-011/AC-05 R-01-012/AC-05
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   EMPTY_TEXT,
   FILTERED_EMPTY_TEXT,
-  MOBILE_PREVIEW_HINT,
+  NARROW_PREVIEW_HINT,
   NARROW_VIEWPORT_QUERY,
   OPEN_PDF_TEXT,
   classifyExportResponse,
@@ -86,7 +86,7 @@ test('失败文案不把 HTML 错误页当正文显示', () => {
 test('窄视口断点与移动端打开文案固定，供视图与 e2e 共用', () => {
   assert.equal(NARROW_VIEWPORT_QUERY, '(max-width: 720px)')
   assert.equal(OPEN_PDF_TEXT, '打开完整 PDF')
-  assert.match(MOBILE_PREVIEW_HINT, /手机浏览器/)
-  assert.match(MOBILE_PREVIEW_HINT, /全部页面/)
+  assert.match(NARROW_PREVIEW_HINT, /窄视口/)
+  assert.match(NARROW_PREVIEW_HINT, /全部页面/)
   assert.match(OPEN_PDF_TEXT, /完整 PDF/)
 })

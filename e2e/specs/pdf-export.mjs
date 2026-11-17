@@ -278,35 +278,54 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     '非法 disposition 返回 400',
   )
 
-  // R-01-013/AC-01..05：窄视口隐藏 iframe，同源链接在新标签页打开同一份 PDF；
-  // 生成中/失败分支由视图状态与失败 e2e 覆盖。
-  await page.setViewportSize({ width: 390, height: 844 })
-  const mobilePreview = page.locator('.dxp-mobile-preview')
-  await mobilePreview.waitFor({ timeout: 10_000 })
-  assertEqual(await page.locator('iframe[title="PDF 预览"]').count(), 0, '窄视口不渲染 PDF iframe')
+  // R-01-013/AC-01..05：断点边界、窄视口隐藏 iframe、同源链接在新标签页打开同一份 PDF；
+  // 生成中/失败分支由失败 e2e 覆盖。
+  const narrowPreview = page.locator('.dxp-narrow-preview')
+  await page.setViewportSize({ width: 721, height: 844 })
+  await page.locator('iframe[title="PDF 预览"]').waitFor({ timeout: 10_000 })
+  assertEqual(await narrowPreview.count(), 0, '断点以上保留页内 iframe')
+  await page.setViewportSize({ width: 720, height: 844 })
+  await narrowPreview.waitFor({ timeout: 10_000 })
+  assertEqual(await page.locator('iframe[title="PDF 预览"]').count(), 0, '断点及以下不渲染 PDF iframe')
   const mobileLink = page.getByRole('link', { name: '打开完整 PDF' })
   assertEqual(await mobileLink.isVisible(), true, '窄视口显示打开完整 PDF 链接')
   assertEqual(await mobileLink.getAttribute('href'), iframeUrl.href, '窄视口链接与预览使用同一份 PDF')
   assertEqual(await mobileLink.getAttribute('target'), '_blank', '链接在新标签页打开')
   assertEqual(await mobileLink.getAttribute('rel'), 'noopener noreferrer', '新标签页断开 opener')
-  assertOk((await mobilePreview.innerText()).includes(expectedPdfPrefix(sessionId, '')), '窄视口显示当前文件名')
+  assertOk((await narrowPreview.innerText()).includes(expectedPdfPrefix(sessionId, '')), '窄视口显示当前文件名')
+
+  // AC-05：非默认图片模式仍使用同一份 PDF，文件名带对应后缀。
+  await page.getByLabel('图片模式').selectOption('embed')
+  await page.waitForFunction(() => document.querySelector('.dxp-open')?.getAttribute('href')?.includes('image=embed'), null, { timeout: 60_000 })
+  assertOk((await narrowPreview.innerText()).includes('-images.pdf'), '窄视口链接文件名包含图片模式后缀')
+  await page.getByLabel('图片模式').selectOption('placeholder')
+  await page.waitForFunction(() => !document.querySelector('.dxp-open')?.getAttribute('href')?.includes('image='), null, { timeout: 60_000 })
+
   const [opened] = await Promise.all([page.waitForEvent('popup'), mobileLink.click()])
   assertOk(opened.url().includes('/api/session.pdf'), '新标签页打开导出路由')
   assertOk(opened.url().includes(`sessionId=${sessionId}`), '新标签页使用同一会话')
   await opened.close()
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.locator('iframe[title="PDF 预览"]').waitFor({ timeout: 10_000 })
-  assertEqual(await mobilePreview.count(), 0, '恢复桌面宽度后回到 iframe 预览')
-  // iframe 恢复后浏览器可能后发一次 PDF GET；等它落账，避免被空会话零请求断言误捕。
-  await page.waitForTimeout(1_000)
+  assertEqual(await narrowPreview.count(), 0, '恢复桌面宽度后回到 iframe 预览')
 
   // R-01-001/AC-03：空会话不发起 PDF 生成请求。宿主在 blank 阶段隐藏视图区，
   // 因此这里断言“无请求”；空态渲染分支由 test/view-state.test.mjs 覆盖。
+  // 只统计发给新空会话的请求，避免误捕上一会话 iframe 的迟到请求。
   await page.waitForTimeout(500)
   const requestsBeforeBlank = pdfRequests.length
   await page.getByRole('button', { name: 'New Session' }).first().click()
   await page.waitForTimeout(1_500)
-  const blankRequests = pdfRequests.slice(requestsBeforeBlank)
+  const newSessionId = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem('dsh.sessions.current') ?? '{}').sessionId
+    } catch {
+      return undefined
+    }
+  })
+  const blankRequests = pdfRequests
+    .slice(requestsBeforeBlank)
+    .filter((request) => newSessionId === undefined || request.url.includes(`sessionId=${newSessionId}`))
   assertEqual(blankRequests.length, 0, '空会话不发起导出请求')
 
   assertEqual(consoleErrors.join('\n'), '', '插件不产生控制台错误或未捕获异常')

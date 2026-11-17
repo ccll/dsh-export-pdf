@@ -84,7 +84,7 @@ export default async function pdfFailure({ page, url, assert }) {
 
   // R-01-013/AC-03：失败状态下缩到窄视口，不得出现“打开完整 PDF”入口。
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.waitForTimeout(300)
+  await page.locator('.dxp-error').waitFor()
   assert.equal(await page.getByRole('link', { name: '打开完整 PDF' }).count(), 0, '失败时不显示打开完整 PDF')
   assert.equal(await page.locator('iframe[title="PDF 预览"]').count(), 0, '失败时不显示 iframe')
 }
