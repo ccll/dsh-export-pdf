@@ -44,6 +44,16 @@ export function messageParts(blocks, options = {}) {
 }
 
 /**
+ * 条目的内容分段：有 parts 用 parts，否则把条目文本包成单段。
+ * 渲染与 Markdown 图片扫描共用，避免两处各判一次形状。
+ * @param {{ parts?: readonly any[], text?: string }} entry 转录条目
+ * @returns {readonly any[]}
+ */
+export function entryParts(entry) {
+  return Array.isArray(entry?.parts) ? entry.parts : [{ type: 'text', text: entry?.text }]
+}
+
+/**
  * 取分段里的文本部分，按原块顺序用换行连接；图片分段不产生文本。
  * @param {readonly { type: string, text?: string }[]} parts 内容分段
  * @returns {string}

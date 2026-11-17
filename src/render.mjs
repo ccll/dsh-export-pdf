@@ -2,6 +2,7 @@ import { IMAGE_MEDIA_TYPES } from './images.mjs'
 
 import { escapeHtml } from './html.mjs'
 import { renderMarkdown } from './markdown.mjs'
+import { entryParts } from './transcript.mjs'
 
 export { escapeHtml } from './html.mjs'
 
@@ -31,7 +32,7 @@ function renderInlineImage(href, alt, images) {
 }
 
 function renderBody(entry, renderImage) {
-  const parts = Array.isArray(entry.parts) ? entry.parts : [{ type: 'text', text: entry.text }]
+  const parts = entryParts(entry)
   const markdown = (text) => renderMarkdown(text, { renderImage })
   return parts
     .map((part) => {

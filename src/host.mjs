@@ -32,16 +32,23 @@ export function createLocalImageReader({ getFs, maxBytes }) {
   if (typeof maxBytes !== 'function') throw new Error('export-pdf: 本地图片读取器缺少 maxBytes')
   return async (path, options = {}) => {
     const fs = getFs()
-    if (fs === undefined || fs === null) throw new Error('宿主文件服务不可用')
+    if (fs === undefined || fs === null) throw readerError('LOCAL_IMAGE_FS_UNAVAILABLE', '宿主文件服务不可用')
     const limit = maxBytes()
-    if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error('图片大小上限未配置')
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw readerError('LOCAL_IMAGE_LIMIT_MISSING', '图片大小上限未配置')
     const target = await fs.resolve(path, options.cwd === undefined ? undefined : { cwd: options.cwd })
     const info = await fs.stat(target)
-    if (info === undefined || info.type !== 'file') throw new Error('图片不是常规文件')
+    if (info === undefined || info.type !== 'file') throw readerError('LOCAL_IMAGE_NOT_FILE', '图片不是常规文件')
     const data = await fs.readBytes(target, undefined, limit)
-    if (!(data instanceof Uint8Array) || data.byteLength === 0) throw new Error('图片文件为空')
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) throw readerError('LOCAL_IMAGE_EMPTY', '图片文件为空')
     return data
   }
+}
+
+/** 读取失败带稳定机器码，导出层记日志时只留码、不拼接可能含路径的消息。 */
+function readerError(code, message) {
+  const error = new Error(message)
+  error.code = code
+  return error
 }
 
 /**

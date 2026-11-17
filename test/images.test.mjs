@@ -103,6 +103,8 @@ test('图片媒体类型按字节嗅探，扩展名只做读取前筛选', () =>
   assert.equal(localImagePath('//host/a.png'), undefined)
   assert.equal(localImagePath('file:///tmp/a.png'), undefined)
   assert.equal(localImagePath('data:image/png;base64,AAAA'), undefined)
+  assert.equal(localImagePath('\\\\host\\share\\a.png'), undefined, 'UNC 共享路径不读')
+  assert.equal(localImagePath('/tmp/a\u0000b.png'), undefined, '控制字符不读')
   assert.equal(localImagePath('/tmp/notes.txt'), undefined)
   assert.equal(localImagePath(''), undefined)
 })
@@ -129,18 +131,35 @@ test('Markdown 本地图片解析为 data URI，按地址去重且不读远程�
 test('本地图片读取失败、非图片字节或相对路径无工作区时跳过并记录日志', async () => {
   const logs = []
   const reads = []
-  const images = await resolveMarkdownImages([entry([{ type: 'text', text: '![坏](/tmp/bad.png) ![文本](/tmp/a.txt) ![相对](a.png)' }])], {
+  // 伪宿主日志格式：消息 + 错误 message，用来验证拼起来也不含完整路径。
+  const logError = (message, error) => logs.push(`${message}: ${error?.message ?? error}`)
+  const images = await resolveMarkdownImages([entry([{ type: 'text', text: '![坏](/tmp/bad.png) ![文本](/tmp/a.txt) ![伪装](/tmp/notimage.png) ![相对](a.png)' }])], {
     readLocalImage: async (path) => {
       reads.push(path)
-      if (path === '/tmp/bad.png') throw new Error('ENOENT')
+      if (path === '/tmp/bad.png') throw Object.assign(new Error('ENOENT'), { code: 'FS_NOT_FOUND' })
       return new TextEncoder().encode('<html>')
     },
-    logError: (message, error) => logs.push({ message, error: String(error) }),
+    logError,
   })
-  assert.deepEqual(reads, ['/tmp/bad.png'], '非图片扩展名与无工作区的相对路径不读取')
+  assert.deepEqual(reads, ['/tmp/bad.png', '/tmp/notimage.png'], '非图片扩展名与无工作区的相对路径不读取，伪图片按字节嗅探失败')
   assert.equal(images.size, 0)
-  assert.ok(logs.length >= 1)
-  assert.ok(logs.every((log) => !log.message.includes('/tmp/')), '日志只带文件名，不带路径')
+  assert.equal(logs.length, 2)
+  assert.ok(logs.every((log) => !log.includes('/tmp/')), '日志拼装后只带文件名，不带路径')
+  assert.ok(logs.some((log) => log.includes('FS_NOT_FOUND')), '宿主错误码保留在日志里')
+  assert.ok(logs.some((log) => log.includes('IMAGE_BYTES_UNSUPPORTED')), '字节嗅探失败有稳定机器码')
+})
+
+test('宿主超限错误按占位回退，不中断其它图片', async () => {
+  const logs = []
+  const images = await resolveMarkdownImages([entry([{ type: 'text', text: '![大](/tmp/big.png) ![小](/tmp/small.png)' }])], {
+    readLocalImage: async (path) => {
+      if (path === '/tmp/big.png') throw Object.assign(new Error('file exceeds byte limit'), { code: 'FS_TOO_LARGE' })
+      return PNG_HEADER
+    },
+    logError: (message, error) => logs.push(`${message}: ${error?.message ?? error}`),
+  })
+  assert.deepEqual([...images.keys()], ['/tmp/small.png'])
+  assert.ok(logs.some((log) => log.includes('big.png') && log.includes('FS_TOO_LARGE')))
 })
 
 test('相对路径按会话工作区读取', async () => {

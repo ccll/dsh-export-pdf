@@ -33,11 +33,37 @@ export function renderMarkdown(source, context = {}) {
  */
 export function markdownImageSources(source) {
   const sources = []
-  replaceLinks(String(source ?? ''), (label, href, image) => {
+  // 围栏代码与行内代码在渲染前就被 token 化，图片语法在其中不生效；扫描同样跳过，
+  // 免得读取代码示例里的路径并记失败日志。
+  replaceLinks(withoutCode(String(source ?? '')), (label, href, image) => {
     if (image) sources.push(href)
     return ''
   })
   return sources
+}
+
+/**
+ * 去掉围栏代码块与行内代码，保留其余正文。
+ * @param {string} text Markdown 文本
+ * @returns {string}
+ */
+function withoutCode(text) {
+  const lines = []
+  let fence = null
+  for (const line of text.split('\n')) {
+    if (fence === null) {
+      const opening = line.match(FENCE)
+      if (opening) {
+        fence = { marker: opening[1][0], length: opening[1].length }
+        continue
+      }
+      lines.push(line)
+      continue
+    }
+    const closing = new RegExp(`^ {0,3}${fence.marker === '`' ? '`' : '~'}{${fence.length},}\\s*$`)
+    if (closing.test(line)) fence = null
+  }
+  return lines.join('\n').replace(/(`+)([\s\S]*?)\1/g, ' ')
 }
 
 function isBlank(line) {
@@ -248,11 +274,25 @@ function replaceLinks(source, convert) {
       continue
     }
     const inside = source.slice(labelEnd + 2, cursor - 1).trim()
-    const href = inside.split(/\s+/)[0] ?? ''
+    const href = markdownDestination(inside)
     output += convert(source.slice(labelStart, labelEnd), href, image)
     index = cursor
   }
   return output
+}
+
+/**
+ * 从 `(…)` 内的目标串取出地址：CommonMark 允许用 `<…>` 包裹含空格的目标地址，
+ * 其余情况取第一个空白前的片段（忽略可选标题）。
+ * @param {string} inside 括号内的原始内容
+ * @returns {string}
+ */
+function markdownDestination(inside) {
+  if (inside.startsWith('<')) {
+    const end = inside.indexOf('>')
+    if (end > 0) return inside.slice(1, end)
+  }
+  return inside.split(/\s+/)[0] ?? ''
 }
 
 function renderInline(source, context = {}) {

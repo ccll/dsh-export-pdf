@@ -96,6 +96,18 @@ test('Markdown 图片地址按括号配对扫描取出，标题与远程地址�
   assert.deepEqual(markdownImageSources('[链接](https://example.com) 不是图片'), [])
 })
 
+test('尖括号包裹的目标地址保留空格，代码块与行内代码里的图片语法不扫描', () => {
+  assert.deepEqual(markdownImageSources('![带空格](</tmp/a b.png>)'), ['/tmp/a b.png'])
+  const html = renderMarkdown('![图](</tmp/a b.png>)', {
+    renderImage: (href, alt) => (href === '/tmp/a b.png' ? `<span class="md-inline-image" data-alt="${alt}"></span>` : undefined),
+  })
+  assert.ok(html.includes('data-alt="图"'), '渲染侧也拿到完整地址')
+  assert.deepEqual(
+    markdownImageSources('```md\n![代码块](/tmp/fenced.png)\n```\n\n正文 `![行内](/tmp/inline.png)` ![真图](/tmp/real.png)'),
+    ['/tmp/real.png'],
+  )
+})
+
 test('无 Markdown 标记时保留原文与换行', () => {
   assert.equal(renderMarkdown('第一行\n第二行'), '<p>第一行<br>第二行</p>')
   assert.equal(renderMarkdown('   '), '')

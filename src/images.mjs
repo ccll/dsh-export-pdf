@@ -1,11 +1,39 @@
 import { markdownImageSources } from './markdown.mjs'
-import { partsText } from './transcript.mjs'
+import { entryParts, partsText } from './transcript.mjs'
+
+/**
+ * 可嵌入 PDF 的图片格式：媒体类型、可接受的扩展名与字节头判定集中一处，
+ * 新增格式只改这张表，避免白名单与嗅探规则两处漂移。
+ */
+const IMAGE_FORMATS = [
+  {
+    mediaType: 'image/png',
+    extensions: ['png'],
+    matches: (data) => startsWithBytes(data, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  },
+  {
+    mediaType: 'image/jpeg',
+    extensions: ['jpg', 'jpeg'],
+    matches: (data) => startsWithBytes(data, [0xff, 0xd8, 0xff]),
+  },
+  {
+    mediaType: 'image/webp',
+    extensions: ['webp'],
+    matches: (data) => startsWithBytes(data, [0x52, 0x49, 0x46, 0x46]) && startsWithBytes(data, [0x57, 0x45, 0x42, 0x50], 8),
+  },
+  {
+    mediaType: 'image/gif',
+    extensions: ['gif'],
+    matches: (data) =>
+      startsWithBytes(data, [0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) || startsWithBytes(data, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61]),
+  },
+]
 
 /** 可嵌入 PDF 的图片媒体类型；与 DSH 附件准入的白名单一致。 */
-export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+export const IMAGE_MEDIA_TYPES = IMAGE_FORMATS.map((format) => format.mediaType)
 
 /** 消息正文里可直接读取的本地图片扩展名；只做读取前的廉价筛选，权威判定看字节嗅探。 */
-export const LOCAL_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif']
+const LOCAL_IMAGE_EXTENSIONS = IMAGE_FORMATS.flatMap((format) => format.extensions)
 
 /**
  * 把已校验的图片字节编码为 data URI。只接受白名单媒体类型与非空字节，
@@ -71,15 +99,6 @@ export async function resolveEmbeddedImages(entries, deps = {}) {
   )
 }
 
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
-const JPEG_SIGNATURE = [0xff, 0xd8, 0xff]
-const GIF_SIGNATURES = [
-  [0x47, 0x49, 0x46, 0x38, 0x37, 0x61],
-  [0x47, 0x49, 0x46, 0x38, 0x39, 0x61],
-]
-const RIFF_SIGNATURE = [0x52, 0x49, 0x46, 0x46]
-const WEBP_SIGNATURE = [0x57, 0x45, 0x42, 0x50]
-
 /**
  * 按字节头嗅探真实图片媒体类型。扩展名只做读取前的筛选，权威判定看字节，
  * 避免把非图片内容声明成图片塞进 HTML。
@@ -88,11 +107,7 @@ const WEBP_SIGNATURE = [0x57, 0x45, 0x42, 0x50]
  */
 export function sniffImageMediaType(data) {
   if (!(data instanceof Uint8Array) || data.byteLength === 0) return undefined
-  if (startsWithBytes(data, PNG_SIGNATURE)) return 'image/png'
-  if (startsWithBytes(data, JPEG_SIGNATURE)) return 'image/jpeg'
-  if (GIF_SIGNATURES.some((signature) => startsWithBytes(data, signature))) return 'image/gif'
-  if (startsWithBytes(data, RIFF_SIGNATURE) && startsWithBytes(data, WEBP_SIGNATURE, 8)) return 'image/webp'
-  return undefined
+  return IMAGE_FORMATS.find((format) => format.matches(data))?.mediaType
 }
 
 /**
@@ -106,6 +121,8 @@ export function localImagePath(href) {
   // CommonMark 允许用尖括号包住目标地址（含空格时常用这种写法），先去掉包裹。
   if (value.startsWith('<') && value.endsWith('>')) value = value.slice(1, -1).trim()
   if (value === '') return undefined
+  // UNC 共享路径与含控制字符的地址不读：聊天界面同样拒绝 UNC，控制字符没有合法文件名语义。
+  if (/^\\\\/.test(value) || /[\u0000-\u001f\u007f]/.test(value)) return undefined
   // Windows 盘符形如 `C:\…`，不能按协议前缀拒掉；其余形如 `scheme:` 与 `//host` 的地址一律不读。
   if (!/^[A-Za-z]:[\\/]/.test(value) && (/^\/\//.test(value) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value))) return undefined
   value = value.split(/[?#]/)[0] ?? ''
@@ -161,23 +178,32 @@ async function readLocalImageDataUrl(path, { readLocalImage, cwd, logError }) {
   try {
     const data = await readLocalImage(path, { cwd })
     const mediaType = sniffImageMediaType(data)
-    if (mediaType === undefined) throw new Error('图片字节不受支持')
+    if (mediaType === undefined) throw imageError('IMAGE_BYTES_UNSUPPORTED', '图片字节不受支持')
     return imageDataUrl(data, mediaType)
   } catch (error) {
-    logError(`读取本地图片失败，回退占位（${localImageLabel(path)}）`, error)
+    // 宿主文件服务的错误消息可能带绝对路径；日志只留机器码，配合消息里的文件名定位。
+    logError(`读取本地图片失败，回退占位（${localImageLabel(path)}）`, imageError(imageFailureCode(error)))
     return undefined
   }
+}
+
+/** 图片读取失败的机器码：优先取宿主文件服务的错误码，其次错误类型，最后兜底 unknown。 */
+function imageFailureCode(error) {
+  if (typeof error?.code === 'string' && error.code !== '') return error.code
+  return typeof error?.name === 'string' && error.name !== '' ? error.name : 'unknown'
+}
+
+function imageError(code, message = code) {
+  const error = new Error(message)
+  error.code = code
+  return error
 }
 
 function markdownTexts(entries) {
   const texts = []
   for (const entry of entries ?? []) {
-    if (Array.isArray(entry?.parts)) {
-      for (const part of entry.parts) {
-        if (part?.type === 'text' && typeof part.text === 'string') texts.push(part.text)
-      }
-    } else if (typeof entry?.text === 'string') {
-      texts.push(entry.text)
+    for (const part of entryParts(entry)) {
+      if (part?.type === 'text' && typeof part.text === 'string') texts.push(part.text)
     }
   }
   return texts
