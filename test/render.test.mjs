@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-02 R-01-010/AC-01 R-01-010/AC-02 R-01-012/AC-02 R-01-012/AC-03
+// 测试锚点: R-01-005/AC-02 R-01-010/AC-01 R-01-010/AC-02 R-01-012/AC-02 R-01-012/AC-03 R-01-014/AC-05
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { PAGE_STYLE, escapeHtml, renderTranscriptHtml } from '../src/render.mjs'
@@ -15,7 +15,7 @@ test('渲染只包含转录条目并转义会话正文', () => {
   ])
   assert.ok(html.startsWith('<!doctype html><html lang="zh-CN">'))
   assert.ok(html.includes('中文问题'))
-  assert.ok(html.includes('回答\n第二行'))
+  assert.ok(html.includes('回答<br>第二行'), 'Markdown 段落保留可读换行')
   assert.ok(!html.includes('<img src=x'))
   assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'))
   assert.ok(html.includes('工具调用 · <span class="tool-name">bash</span>'))
@@ -83,4 +83,18 @@ test('图片分段以 data URI 内联到消息原位，非法地址回退占位'
   assert.ok(html.indexOf('<figure class="inline-image">') < html.indexOf('后续'))
   assert.ok(!html.includes('https://example.com/a.png'), '非 data:image 地址不得进入图片标签')
   assert.ok(html.includes('[图片]'), '非法图片地址回退占位')
+})
+
+test('用户与助手正文按 Markdown 渲染，工具摘要保持原始单行', () => {
+  const html = renderTranscriptHtml([
+    { kind: 'user', text: '## 用户标题\n\n- **重点**\n- 次要点' },
+    { kind: 'assistant', text: '`code` 与 [链接](https://example.com)' },
+    { kind: 'tool', name: 'bash', summary: 'command=echo **not markdown**' },
+  ])
+  assert.match(html, /<h2>用户标题<\/h2>/)
+  assert.match(html, /<li><strong>重点<\/strong><\/li>/)
+  assert.match(html, /<code class="md-inline-code">code<\/code>/)
+  assert.match(html, /<a href="https:\/\/example\.com" rel="noreferrer">链接<\/a>/)
+  assert.ok(html.includes('command=echo **not markdown**'), '工具摘要不参与 Markdown')
+  assert.ok(!html.includes('<strong>not markdown</strong>'))
 })

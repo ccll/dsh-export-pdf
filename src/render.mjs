@@ -1,22 +1,9 @@
 import { IMAGE_MEDIA_TYPES } from './images.mjs'
 
-const HTML_ESCAPES = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
-}
+import { escapeHtml } from './html.mjs'
+import { renderMarkdown } from './markdown.mjs'
 
-/**
- * 转义会话正文里的 HTML 元字符。导出文档完全由会话内容拼接，
- * 任意消息都可能包含标签或脚本，因此所有文本必须先转义再入模板。
- * @param {unknown} value 待转义文本
- * @returns {string}
- */
-export function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (character) => HTML_ESCAPES[character])
-}
+export { escapeHtml } from './html.mjs'
 
 const USER_ICON =
   '<svg class="avatar" data-role-icon="user" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="5" r="2.6" fill="currentColor"/><path d="M2.8 14.2c0-2.9 2.3-4.8 5.2-4.8s5.2 1.9 5.2 4.8" fill="currentColor"/></svg>'
@@ -48,7 +35,30 @@ main { display: block; }
 .entry.user .role { color: #4f6f9f; justify-content: flex-end; }
 .entry.assistant .role { justify-content: flex-start; }
 .avatar { flex: none; height: 3.4mm; width: 3.4mm; }
-.body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.body { margin: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.body > .md > :first-child { margin-top: 0; }
+.body > .md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 1.4mm; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { break-after: avoid; line-height: 1.35; margin: 2.2mm 0 1.2mm; }
+.md h1 { font-size: 15pt; }
+.md h2 { font-size: 13.5pt; }
+.md h3 { font-size: 12pt; }
+.md h4, .md h5, .md h6 { font-size: 11.5pt; }
+.md ul, .md ol { margin: 0 0 1.4mm; padding-left: 5.5mm; }
+.md li { margin: 0.5mm 0; }
+.md li > p { margin: 0; }
+.md li > .md-list { margin: 0.4mm 0 0; }
+.md .md-check { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; margin-right: 0.6mm; }
+.md blockquote { border-left: 1.2pt solid #c8c8c8; color: #555555; margin: 1.2mm 0; padding-left: 3mm; }
+.md hr { border: 0; border-top: 0.4mm solid #d8d8d8; margin: 2mm 0; }
+.md a { color: #2f5f9f; text-decoration: underline; }
+.md code { background: #f1f1f1; border-radius: 0.7mm; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 9.5pt; padding: 0 0.6mm; }
+.md pre.md-code { background: #f3f3f3; border: 0.25mm solid #dddddd; border-radius: 1mm; box-sizing: border-box; margin: 1.2mm 0; overflow-wrap: anywhere; padding: 1.8mm 2.4mm; white-space: pre-wrap; }
+.md pre.md-code code { background: transparent; font-size: 9pt; line-height: 1.45; padding: 0; white-space: inherit; }
+.md .md-image { color: #6b6b6b; }
+.md table { border-collapse: collapse; font-size: 9.5pt; margin: 1.2mm 0; table-layout: fixed; width: 100%; }
+.md th, .md td { border: 0.25mm solid #d0d0d0; overflow-wrap: anywhere; padding: 0.8mm 1.2mm; vertical-align: top; }
+.md th { background: #f3f3f3; font-weight: 600; }
 .entry.user .body {
   background: #eef3fb;
   border-radius: 2mm;
@@ -58,6 +68,7 @@ main { display: block; }
 .entry.assistant .body { border-left: 1.5pt solid #d0d0d0; padding-left: 3.5mm; }
 .entry.tool .body {
   background: #f3f3f3;
+  white-space: pre-wrap;
   border-radius: 1.2mm;
   box-sizing: border-box;
   color: #333333;
@@ -76,16 +87,20 @@ function renderBody(entry) {
   const parts = Array.isArray(entry.parts) ? entry.parts : [{ type: 'text', text: entry.text }]
   return parts
     .map((part) => {
-      if (part?.type !== 'image') return escapeHtml(part?.text)
+      if (part?.type !== 'image') {
+        const text = typeof part?.text === 'string' ? part.text : ''
+        return text === '' ? '' : `<div class="md">${renderMarkdown(text)}</div>`
+      }
       // dataUrl 只由导出器的附件解析器生成；非 data:image 值一律回退占位，避免注入。
       if (
         typeof part.dataUrl !== 'string' ||
         !IMAGE_MEDIA_TYPES.some((type) => part.dataUrl.startsWith(`data:${type};base64,`))
       ) {
-        return escapeHtml('[图片]')
+        return `<div class="md">${renderMarkdown('[图片]')}</div>`
       }
       return `<figure class="inline-image"><img src="${escapeHtml(part.dataUrl)}" alt="图片"></figure>`
     })
+    .filter((html) => html !== '')
     .join('\n')
 }
 

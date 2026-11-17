@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03 R-01-012/AC-02 R-01-012/AC-03 R-01-012/AC-06
+// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03 R-01-012/AC-02 R-01-012/AC-03 R-01-012/AC-06 R-01-014/AC-01 R-01-014/AC-02 R-01-014/AC-03
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -285,6 +285,62 @@ test('真实浏览器打印：图片占位/嵌入原图/不导出', { timeout: 1
         assert.ok(displayWidth <= 505, `${mode} 图片宽度不得越出 A4 版心，实际 ${displayWidth.toFixed(1)}pt`)
       }
     }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('真实浏览器打印：Markdown 版式进入 PDF 且不保留原始标记', { timeout: 120_000 }, async (context) => {
+  const browserPath = await resolveBrowserPath('').catch(() => undefined)
+  const skip = (reason) => {
+    if (process.env.CI) assert.fail(reason)
+    context.skip(reason)
+  }
+  if (browserPath === undefined) {
+    skip('宿主没有可用的 Chrome/Chromium')
+    return
+  }
+  if (!(await detectCjkFont())) {
+    skip('宿主没有可用的中文字体')
+    return
+  }
+  if (!hasCommand('pdftotext')) {
+    skip('宿主缺少 pdftotext')
+    return
+  }
+  const markdown = [
+    '# Markdown 标题',
+    '',
+    '- 第一项',
+    '- **第二项**',
+    '',
+    '```js',
+    'const tag = "<tag>"',
+    '```',
+    '',
+    '| 列 | 值 |',
+    '| --- | --- |',
+    '| A | 1 |',
+    '',
+    '普通段落带 [链接](https://example.com)。',
+  ].join('\n')
+  const html = renderTranscriptHtml([{ kind: 'user', text: markdown }])
+  assert.ok(html.includes('<h1>Markdown 标题</h1>'))
+  assert.ok(!html.includes('# Markdown 标题'))
+  const bytes = await renderPdfWithBrowser({ html, browserPath, timeoutMs: 60_000 })
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-pdf-markdown-'))
+  try {
+    const pdfPath = join(directory, 'markdown.pdf')
+    await writeFile(pdfPath, bytes)
+    const text = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' })
+    assert.ok(text.includes('Markdown 标题'))
+    assert.ok(text.includes('第一项'))
+    assert.ok(text.includes('第二项'))
+    assert.ok(text.includes('const tag = "<tag>"'), '代码内容以文本保留')
+    assert.ok(text.includes('A'))
+    assert.ok(!text.includes('# Markdown 标题'), 'PDF 文本层不保留标题井号')
+    assert.ok(!text.includes('**第二项**'), 'PDF 文本层不保留加粗标记')
+    assert.ok(!text.includes('```'), 'PDF 文本层不保留围栏标记')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

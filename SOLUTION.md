@@ -43,9 +43,9 @@ owner: agent 主笔，项目属主审批
 |---|---|---|
 | 边界与契约已明确 | 通过 | SOLUTION.md#产品契约 |
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
-| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md, RATIONALE/C-006-image-modes.md, RATIONALE/C-007-mobile-pdf-open.md |
+| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md, RATIONALE/C-006-image-modes.md, RATIONALE/C-007-mobile-pdf-open.md, RATIONALE/C-008-markdown-rendering.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
-| 现状差距已有 task 承接 | 通过 | T-001～T-009 已交付既有需求（completed）；无未承接差距 |
+| 现状差距已有 task 承接 | 通过 | T-001～T-009 已交付既有需求（completed）；R-01-014 由 T-010 承接 |
 | 可派生验证 | 通过 | SOLUTION.md#产品契约 |
 
 ## 静态架构
@@ -219,6 +219,7 @@ flowchart LR
 - 图片模式 `placeholder` 把图片块降为 `[图片]`，纯图片消息保留；`embed` 保留图片引用并在渲染前嵌入原图，读取失败回退 `[图片]`；`none` 省略图片块与纯图片消息。
 - 文件块只在 `attachments` 选中时产生 `[附件: 文件名]`；文件本体从不嵌入 PDF，纯文件消息未选文件附件时不进入条目列表。
 - 图片嵌入只读取消息附件引用经 `ctx.attachments.readImage` 校验的字节，不读取宿主路径、不按外部 URL 抓取；渲染时缩放到版心内，单图不越出页面边界。
+- 用户与助手正文先按 Markdown 渲染成受控 HTML：块级标题/列表/引用/围栏代码/表格/分隔线，行内加粗/斜体/删除线/行内代码/链接与图片占位；原始 HTML 只按文本转义，链接只允许 http、https、mailto，Markdown 图片不抓取 URL。
 - 窄视口（≤720px）不渲染页内 PDF iframe；显示同源“打开完整 PDF”链接，在新标签页用系统查看器浏览全部页面。桌面视口保留页内原生 PDF 预览。两种入口共用同一缓存结果、文件名与选择。
 - 用户消息只取 `source.kind` 为 `user` 的真人输入；运行上下文、技能目录、时间提示等内部注入不进入 PDF，否则导出会夹带整份 Agent 指令。旧格式日志没有 `source` 字段时按真人输入处理，避免历史会话导出为空。
 - 折叠后没有任何条目时按“当前选择下无可导出内容”处理，以 `204` 结束。
@@ -300,17 +301,18 @@ flowchart LR
 | R-01-011 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/selection.mjs, src/transcript.mjs, src/exporter.mjs, src/route.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs |
 | R-01-012 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/selection.mjs, src/images.mjs, src/transcript.mjs, src/render.mjs, src/exporter.mjs, src/route.mjs, src/naming.mjs, src/host.mjs, src/view.mjs, src/view-state.mjs |
 | R-01-013 | 会话导出 | SOLUTION.md#产品契约 | src/view.mjs, src/view-state.mjs |
+| R-01-014 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/markdown.mjs, src/html.mjs, src/render.mjs |
 
 ## 子系统与模块
 
 ### 会话导出
-- 职责: 把一份会话按所选内容组成渲染成 PDF，并在会话页内提供预览与下载（承接 R-01-001～R-01-013）。
+- 职责: 把一份会话按所选内容组成渲染成 PDF，并在会话页内提供预览与下载（承接 R-01-001～R-01-014）。
 - 关键内部结构:
   - 宿主半区注册一条精确路由，承担参数校验、渲染编排、缓存与响应。
   - 浏览器半区注册一个 `conversation.view` 条目，承担预览、内容选择与下载交互；选择变化会取消旧请求并按新选择重取。
   - 转录折叠与 HTML 渲染是纯函数；图片解析经过附件服务，负责把引用转成内联字节并对失败回退占位。
   - 浏览器进程按需启动，一次渲染一个进程，结束即回收。
-- 代码位置: src/selection.mjs, src/images.mjs, src/host.mjs, src/route.mjs, src/exporter.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs, src/client.mjs
+- 代码位置: src/selection.mjs, src/images.mjs, src/html.mjs, src/markdown.mjs, src/host.mjs, src/route.mjs, src/exporter.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs, src/client.mjs
 - 实现: 双端
 
 ## 横切约束
@@ -326,6 +328,7 @@ flowchart LR
 - PDF 生成采用“HTML 加本机 Chromium 打印”，理由与被否方案见 RATIONALE/C-001-chromium-print-html.md。
 - 预览采用浏览器原生 PDF 查看器，经同源路由直接加载 PDF，不引入 PDF.js；窄视口受内置查看器限制，改为在新标签页用系统查看器打开同一份 PDF。
 - 不使用模板引擎，HTML 由字符串拼接与转义函数产出。
+- Markdown 由无依赖的安全子集转换（C-008），不引入 `marked` 等运行时依赖；原始 HTML、危险协议链接与外部 Markdown 图片都不进入渲染输出。
 - 实测样本（2026-11-16，Chrome 156）：44 个回合块加表格与代码块输出 6 页 A4、241 KB；文本层可抽取全部中文；单次打印 1.45 秒、峰值内存 236 MB。
 - 中文字体以 Type 3 形式嵌入，文本仍可选择与搜索；若换成 TTF 轮廓字体，Chrome 通常嵌入为 CID TrueType。
 - 页脚不显示页码，理由与被否方案见 RATIONALE/C-002-no-page-numbers.md。

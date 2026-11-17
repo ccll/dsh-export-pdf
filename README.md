@@ -55,7 +55,7 @@ Invalid values fail at plugin load instead of silently falling back.
 - **In-page preview**: on desktop viewports the generated PDF is displayed in place in the browser's PDF viewer, with navigation across all pages.
 - **Narrow viewports (mobile)**: at viewports of 720px or narrower the embedded viewer is replaced by an "Open full PDF" link; it opens the same PDF in a new tab so the system viewer can show every page.
 - **Download**: delivers the same bytes under the stable filename above.
-- **Faithful transcript**: user and assistant message text in log order by default; image placeholders follow the image mode, while the header checkboxes add file placeholders and one-line tool summaries; thinking blocks omitted.
+- **Faithful transcript**: user and assistant messages appear in log order with Markdown headings, lists, quotes, fenced code, tables, and inline emphasis rendered; raw HTML is escaped, links allow only http/https/mailto, and Markdown image syntax becomes a placeholder. Image placeholders follow the image mode, while the header checkboxes add file placeholders and one-line tool summaries; thinking blocks omitted.
 - **Readable Chinese output**: CJK glyphs embedded, A4 pages, Chrome's default header/footer disabled so no date, title, or temporary file path is printed.
 - **Visible failures**: a missing session, an unreadable log, a missing browser, a missing CJK font, a render failure, or a timeout produces an explicit message on the page and never a partial file. A failed render is not cached, so **Retry** starts a fresh attempt.
 - **Read-only**: exporting never writes to the session log and leaves no files behind.
