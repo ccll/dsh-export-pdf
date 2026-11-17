@@ -45,7 +45,7 @@ owner: agent 主笔，项目属主审批
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
 | 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md, RATIONALE/C-006-image-modes.md, RATIONALE/C-007-mobile-pdf-open.md, RATIONALE/C-008-markdown-rendering.md, RATIONALE/C-010-markdown-local-images.md, RATIONALE/C-011-local-image-read-policy.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
-| 现状差距已有 task 承接 | 通过 | T-001～T-010 已交付既有需求（completed）；无未承接差距 |
+| 现状差距已有 task 承接 | 通过 | T-001～T-016 已交付既有需求（completed）；无未承接差距 |
 | 可派生验证 | 通过 | SOLUTION.md#产品契约 |
 
 ## 静态架构
@@ -270,7 +270,7 @@ flowchart LR
 
 - 会话查询服务：经 `ctx.sessionQuery` 读取会话日志，会话不存在时抛 `SESSION_QUERY_SESSION_NOT_FOUND`。
 - 附件服务：经 `ctx.attachments.readImage(ref)` 读取并校验本会话消息引用的图片字节；只接受日志中的附件引用，不按外部 URL 抓取。
-- 宿主文件服务：经 `ctx.fs` 的 `resolve`、`stat`、`readBytes` 读取消息正文引用的本地图片；服务缺失时本地图片退回占位，不阻止导出。
+- 宿主文件服务：经 `ctx.fs` 的 `lstat`、`resolve`、`readBytes` 读取消息正文引用的本地图片；服务缺失时本地图片退回占位，不阻止导出。
 - 本机浏览器：按配置路径或 PATH 探测名称列表，启动无头模式打印 HTML。
 - 本机字体：探测中文字体是否可用，缺失时拒绝导出而不是输出缺字 PDF。Linux 先执行 `fc-list :lang=zh`，没有 fontconfig 时扫描系统字体目录；探测结果缓存在宿主进程内。
 - 宿主的连接服务：经 `ctx.connection.fetch.register` 注册精确路由，鉴权由该桥提供。

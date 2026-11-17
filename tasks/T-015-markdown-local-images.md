@@ -6,7 +6,7 @@ id: T-015
 
 # T-015 嵌入原图覆盖 Markdown 本地图片
 
-状态: active
+状态: completed
 类型: 功能
 风险等级: major
 风险面: 契约（PDF 内容新增消息正文里 Markdown 本地图片的嵌入）
@@ -53,9 +53,9 @@ id: T-015
 |---|---|---|
 | 成功 | 适用：本地图片可读时嵌入原图并按版心缩放 | `test/exporter.test.mjs::嵌入原图同时嵌入 Markdown 本地图片，占位与不导出模式不读取`、`test/pdf.test.mjs::真实浏览器打印：注入的 Markdown 本地图片进入 PDF，缺图回退占位文字` |
 | 异常 | 适用：读取失败、非图片字节、远程地址与协议地址都回退占位 | `test/images.test.mjs::本地图片读取失败、非图片字节或相对路径无工作区时跳过并记录日志`、`test/exporter.test.mjs::Markdown 本地图片读取失败回退占位文字，相对路径按会话工作区解析` |
-| 边界配置 | 适用：扩展名白名单、尖括号含空格地址、相对路径需要工作区、图片大小上限与空文件 | `test/images.test.mjs::图片媒体类型按字节嗅探，扩展名只做读取前筛选`、`test/markdown.test.mjs::尖括号包裹的目标地址保留空格，代码块与行内代码里的图片语法不扫描`、`test/images.test.mjs::相对路径按会话工作区读取`、`test/host.test.mjs::本地图片读取器把宿主超限与空文件错误原样交给调用方` |
+| 边界配置 | 适用：扩展名白名单、尖括号含空格地址、相对路径需要工作区、图片大小上限、空文件与最终符号链接 | `test/images.test.mjs::图片媒体类型按字节嗅探，扩展名只做读取前筛选`、`test/markdown.test.mjs::尖括号包裹的目标地址保留空格，代码块与行内代码里的图片语法不扫描`、`test/images.test.mjs::相对路径按会话工作区读取`、`test/host.test.mjs::本地图片读取器把宿主超限与空文件错误原样交给调用方`、`test/host.test.mjs::本地图片读取器拒绝最终符号链接，与聊天文件服务一致` |
 | 副作用 | 适用：占位与不导出模式不读文件，文件服务缺失不阻止导出 | `test/exporter.test.mjs::嵌入原图同时嵌入 Markdown 本地图片，占位与不导出模式不读取`、`test/images.test.mjs::没有本地图片读取器时返回空索引，不报错` |
-| 安全 | 适用：只读、限图片字节、不抓远程地址、日志不带完整路径 | `test/images.test.mjs::Markdown 本地图片解析为 data URI，按地址去重且不读远程地址`、`test/images.test.mjs::本地图片读取失败、非图片字节或相对路径无工作区时跳过并记录日志` |
+| 安全 | 适用：只读、限图片字节、不抓远程地址、日志不带完整路径、拒绝最终符号链接 | `test/images.test.mjs::Markdown 本地图片解析为 data URI，按地址去重且不读远程地址`、`test/images.test.mjs::本地图片读取失败、非图片字节或相对路径无工作区时跳过并记录日志`、`test/host.test.mjs::本地图片读取器拒绝最终符号链接，与聊天文件服务一致` |
 | 兼容性 | 适用：协议、状态码、文件名后缀与占位文字不变 | `test/route.test.mjs::GET 成功返回 PDF 与 inline 文件名`、`test/exporter.test.mjs::图片三模式独立缓存：占位不读图，嵌入读图，失败回退占位`、`e2e/specs/pdf-export.mjs::R-01-012/AC-05` |
 
 ## 自查清单
@@ -68,7 +68,12 @@ id: T-015
 
 ## 终态与证据
 
-- 实现: 待补
-- 测试: 待补
-- SOLUTION 对照: 待补
-- commit: 待补
+- 实现: `src/images.mjs` 新增 Markdown 图片地址筛选、字节嗅探、失败日志与「地址 → data URI」索引；`src/host.mjs` 新增 `createLocalImageReader`，先 `lstat` 拒绝最终符号链接、再 `resolve`，按 `ctx.attachments.imageLimits.maxImageBytes` 读取，并以可选依赖方式取 `ctx.fs`；`src/exporter.mjs` 只在 embed 模式解析索引；`src/render.mjs`、`src/markdown.mjs` 用 `renderImage` 回调替换占位为内联 `<img>`；`src/page-style.css` 约束气泡内宽度与 220mm 高度。实现提交 2aa01fa，复审修复 98679b6、3792533，读取口径对齐 370ad34（C-011）。
+- 测试: `pnpm verify` 通过——`pnpm check`（20 个源文件、client bundle 20288 字符）、`node --test` 117 通过 0 失败、e2e `pdf-export.mjs` 与 `pdf-failure.mjs` PASS。真实 Chrome 用例断言嵌入后位图宽度落在版心内（397pt）、文本层无 `[图片: alt]`；删图后位图为 0 且回退占位；e2e 用用户消息里引用的工作区图片验证真实宿主装配（`ctx.fs.lstat`）生效。复现口径：东家报告的会话日志（session-adf93c30）嵌入模式位图数 0 → 4、PDF 953380 → 991488 字节、占位文字 4 条 → 0 条；占位模式改动前后同为 953380 字节、4 条占位。
+- SOLUTION 对照: PRD R-01-012（AC-03、AC-06、AC-07）与 R-01-014/AC-05 均有 SOLUTION 追溯行与落点；契约、不变量、失败语义、外部集成、安全边界、技术选型与实现一致；DOMAIN「Markdown 图片」「本地图片」已登记；读取口径经 C-011 与 PRD/SOLUTION/DOMAIN/README 统一，未发现未同步差异。
+- commit: 2aa01fa, 98679b6, 3792533, 370ad34
+- review:
+  - 审核方: 独立双轴代码评审（Standards 轴 2a4b99da、Spec 轴 09b519da，两轴各自独立上下文，与实现上下文隔离）；累计审计（T-016）另做跨改动复核
+  - 目的理解: 东家的两张截图在 PDF 里始终是 `[图片: …]` 占位；目标是让「嵌入原图」同时嵌入消息正文里 Markdown 引用的本地图片，经宿主文件服务读取、只认图片扩展名与真实字节、失败回退占位，同时不改 HTTP 契约、文件名后缀与占位/不导出模式；验证靠单测、真实 Chrome 打印用例与 e2e 真实宿主。
+  - 问题与修复: 首轮两轴均无 blocking，non-blocking 逐条处置——代码块误读（扫描前剥围栏与行内代码，3792533 补引用块与转义）；失败日志带绝对路径（改为只记机器码）；含空格 `<…>` 地址被截断（按 CommonMark 解析）；超限/空文件/缩放缺证据（补 `FS_TOO_LARGE`、空文件与 800×400 版心断言）；格式白名单三份（合成 `IMAGE_FORMATS`）；UNC 与控制字符在解码前判定（改到解码后）；形状判断重复（抽出 `entryParts`）；e2e 锚点与 SOLUTION 口径漂移（补锚点、改依赖数）。累计审计又发现 blocking：AC-07 声称读取受沙箱约束，而宿主沙箱只约束写入，且聊天文件服务拒绝最终符号链接；东家选 A（与聊天界面对齐），370ad34 改用 `lstat` 拒绝符号链接并以 C-011 统一口径，复核解除。
+  - 复审结论: 通过，无 blocking；残余登记在 T-016（E3 列表缩进围栏与转义仍会多读、E5 并行读取无上限与按 href 去重），不影响交付承诺。
