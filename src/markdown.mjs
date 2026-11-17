@@ -51,8 +51,10 @@ function withoutCode(text) {
   const lines = []
   let fence = null
   for (const line of text.split('\n')) {
+    // 引用块里的围栏带 `> ` 前缀；判断围栏时剥掉前缀，保留原行用于扫描其它语法。
+    const bare = line.replace(/^(?: {0,3}> ?)+/, '')
     if (fence === null) {
-      const opening = line.match(FENCE)
+      const opening = bare.match(FENCE)
       if (opening) {
         fence = { marker: opening[1][0], length: opening[1].length }
         continue
@@ -61,9 +63,10 @@ function withoutCode(text) {
       continue
     }
     const closing = new RegExp(`^ {0,3}${fence.marker === '`' ? '`' : '~'}{${fence.length},}\\s*$`)
-    if (closing.test(line)) fence = null
+    if (closing.test(bare)) fence = null
   }
-  return lines.join('\n').replace(/(`+)([\s\S]*?)\1/g, ' ')
+  // 行内代码逐行剥离：渲染按块处理，跨段配对会把真实图片误当成代码吞掉。
+  return lines.map((line) => line.replace(/(`+)([\s\S]*?)\1/g, ' ')).join('\n')
 }
 
 function isBlank(line) {

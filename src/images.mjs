@@ -121,8 +121,6 @@ export function localImagePath(href) {
   // CommonMark 允许用尖括号包住目标地址（含空格时常用这种写法），先去掉包裹。
   if (value.startsWith('<') && value.endsWith('>')) value = value.slice(1, -1).trim()
   if (value === '') return undefined
-  // UNC 共享路径与含控制字符的地址不读：聊天界面同样拒绝 UNC，控制字符没有合法文件名语义。
-  if (/^\\\\/.test(value) || /[\u0000-\u001f\u007f]/.test(value)) return undefined
   // Windows 盘符形如 `C:\…`，不能按协议前缀拒掉；其余形如 `scheme:` 与 `//host` 的地址一律不读。
   if (!/^[A-Za-z]:[\\/]/.test(value) && (/^\/\//.test(value) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value))) return undefined
   value = value.split(/[?#]/)[0] ?? ''
@@ -133,6 +131,9 @@ export function localImagePath(href) {
   } catch {
     decoded = value
   }
+  // UNC 共享路径与含控制字符的地址不读：聊天界面同样拒绝 UNC，控制字符没有合法文件名语义。
+  // 判定放在解码之后，避免 `%5C%5C`、`%00` 这类转义绕过。
+  if (/^\\\\/.test(decoded) || /[\u0000-\u001f\u007f]/.test(decoded)) return undefined
   const name = decoded.split(/[\\/]/).pop() ?? ''
   const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : ''
   return LOCAL_IMAGE_EXTENSIONS.includes(extension) ? decoded : undefined

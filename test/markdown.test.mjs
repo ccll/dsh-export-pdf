@@ -106,6 +106,7 @@ test('尖括号包裹的目标地址保留空格，代码块与行内代码里�
     markdownImageSources('```md\n![代码块](/tmp/fenced.png)\n```\n\n正文 `![行内](/tmp/inline.png)` ![真图](/tmp/real.png)'),
     ['/tmp/real.png'],
   )
+  assert.deepEqual(markdownImageSources('> ~~~\n> ![引用块代码](/tmp/quoted.png)\n> ~~~\n\n![真图](/tmp/real.png)'), ['/tmp/real.png'])
 })
 
 test('无 Markdown 标记时保留原文与换行', () => {
