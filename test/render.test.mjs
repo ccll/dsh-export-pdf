@@ -38,6 +38,12 @@ test('页面样式固定 A4、中文可读、无页眉页脚与页码规则', ()
   assert.ok(!html.includes('页码'))
 })
 
+test('助手正文不带整体左竖线，引用块的竖线只属于引用内容', () => {
+  assert.doesNotMatch(PAGE_STYLE, /\.entry\.assistant \.body[^{]*\{[^}]*border-left/, '助手正文不得有整体左边线')
+  assert.doesNotMatch(PAGE_STYLE, /\.entry\.assistant \.body[^{]*\{[^}]*padding-left/, '助手正文不得留下为竖线预留的左内边距')
+  assert.match(PAGE_STYLE, /\.md blockquote \{[^}]*border-left/, 'Markdown 引用块仍带竖线')
+})
+
 test('用户与助手角色标签各带一个内联 SVG 图标', () => {
   const html = renderTranscriptHtml([
     { kind: 'user', text: '用户消息' },

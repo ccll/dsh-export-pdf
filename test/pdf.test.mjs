@@ -127,6 +127,9 @@ test('真实浏览器打印：A4、多页、中文字形与转录内容正确', 
     const assistantX = wordXMin('助手左对齐标记')
     assert.ok(userX !== undefined && assistantX !== undefined, 'bbox 应包含两侧标记词')
     assert.ok(assistantX < 300, `助手回复应从左侧起排，实际 xMin=${assistantX}`)
+    // 助手正文贴着版心左缘（16mm≈45.35pt）：不带整体左竖线与 3.5mm 内边距，改动前会多出约 11pt。
+    const PAGE_LEFT = 45.35
+    assert.ok(Math.abs(assistantX - PAGE_LEFT) <= 1.5, `助手正文应贴版心左缘且无整体左竖线，实际 xMin=${assistantX}，版心 ${PAGE_LEFT}`)
     assert.ok(userX > assistantX + 80, `用户消息应右移，用户 xMin=${userX}，助手 xMin=${assistantX}`)
     assert.ok(maxRight > 500, `用户消息应抵达版心右缘，实际 xMax=${maxRight}`)
 

@@ -65,7 +65,6 @@ main { display: block; }
   box-sizing: border-box;
   padding: 2mm 3mm;
 }
-.entry.assistant .body { border-left: 1.5pt solid #d0d0d0; padding-left: 3.5mm; }
 .entry.tool .body {
   background: #f3f3f3;
   white-space: pre-wrap;
