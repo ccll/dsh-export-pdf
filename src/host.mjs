@@ -12,8 +12,8 @@ export const inject = ['connection', 'sessionQuery', 'attachments']
 
 /**
  * 宿主的文件服务。不写进 `inject`：宿主没有该服务时插件仍要能装载并导出，
- * 只是 Markdown 本地图片退回占位文字；有该服务时权限与沙箱策略和 GUI 的
- * `/api/file` 同源。
+ * 只是 Markdown 本地图片退回占位文字；有该服务时读取权限与 GUI 的 `/api/file`
+ * 一致——宿主沙箱只约束写入，读取不受限，两侧都用 `lstat` 拒绝最终符号链接。
  * @param {any} ctx 宿主上下文
  * @returns {any}
  */
@@ -35,9 +35,11 @@ export function createLocalImageReader({ getFs, maxBytes }) {
     if (fs === undefined || fs === null) throw readerError('LOCAL_IMAGE_FS_UNAVAILABLE', '宿主文件服务不可用')
     const limit = maxBytes()
     if (!Number.isSafeInteger(limit) || limit <= 0) throw readerError('LOCAL_IMAGE_LIMIT_MISSING', '图片大小上限未配置')
-    const target = await fs.resolve(path, options.cwd === undefined ? undefined : { cwd: options.cwd })
-    const info = await fs.stat(target)
+    const scope = options.cwd === undefined ? undefined : { cwd: options.cwd }
+    // lstat 按路径判定、不跟随最终符号链接：链接按「不是常规文件」拒绝，与聊天文件服务一致。
+    const info = await fs.lstat(path, scope)
     if (info === undefined || info.type !== 'file') throw readerError('LOCAL_IMAGE_NOT_FILE', '图片不是常规文件')
+    const target = await fs.resolve(path, scope)
     const data = await fs.readBytes(target, undefined, limit)
     if (!(data instanceof Uint8Array) || data.byteLength === 0) throw readerError('LOCAL_IMAGE_EMPTY', '图片文件为空')
     return data

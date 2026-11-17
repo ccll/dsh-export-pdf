@@ -460,7 +460,7 @@ const markdownImageEvent = (seq, text = MARKDOWN_IMAGE) => ({
   data: { message: { role: 'assistant', content: [{ type: 'text', text }] } },
 })
 
-test('嵌入原图同时嵌入 Markdown 本地图片，占位模式不读取', async () => {
+test('嵌入原图同时嵌入 Markdown 本地图片，占位与不导出模式不读取', async () => {
   const htmls = []
   const reads = []
   const exporter = makeExporter({
@@ -485,6 +485,11 @@ test('嵌入原图同时嵌入 Markdown 本地图片，占位模式不读取', a
   assert.equal(placeholder.kind, 'pdf')
   assert.equal(reads.length, 1, '占位模式不读取本地图片')
   assert.ok(htmls[1].includes('[图片: 改前第 1 页]'))
+
+  const none = await exporter.exportSession('s', [], 'none')
+  assert.equal(none.kind, 'pdf')
+  assert.equal(reads.length, 1, '不导出模式不读取本地图片')
+  assert.ok(htmls[2].includes('[图片: 改前第 1 页]'), '不导出模式保留 Markdown 图片占位文字')
 })
 
 test('Markdown 本地图片读取失败回退占位文字，相对路径按会话工作区解析', async () => {

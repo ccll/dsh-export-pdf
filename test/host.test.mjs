@@ -52,13 +52,13 @@ test('本地图片读取器经宿主文件服务解析路径、按附件上限�
   const calls = []
   const target = { targetKey: '/tmp/a.png' }
   const fs = {
+    lstat: async (path, options) => {
+      calls.push(['lstat', path, options])
+      return { type: 'file', size: 4 }
+    },
     resolve: async (path, options) => {
       calls.push(['resolve', path, options])
       return target
-    },
-    stat: async (value) => {
-      calls.push(['stat', value])
-      return { type: 'file', size: 4 }
     },
     readBytes: async (value, signal, maxBytes) => {
       calls.push(['readBytes', value, signal, maxBytes])
@@ -68,8 +68,8 @@ test('本地图片读取器经宿主文件服务解析路径、按附件上限�
   const read = createLocalImageReader({ getFs: () => fs, maxBytes: () => 1024 })
   assert.deepEqual(await read('/tmp/a.png', { cwd: '/work' }), new Uint8Array([1, 2, 3, 4]))
   assert.deepEqual(calls, [
+    ['lstat', '/tmp/a.png', { cwd: '/work' }],
     ['resolve', '/tmp/a.png', { cwd: '/work' }],
-    ['stat', target],
     ['readBytes', target, undefined, 1024],
   ])
 })
@@ -79,13 +79,13 @@ test('本地图片读取器在服务缺失、非文件、上限未配置与依�
   await assert.rejects(readWithoutFs('/tmp/a.png'), { message: /宿主文件服务不可用/, code: 'LOCAL_IMAGE_FS_UNAVAILABLE' })
 
   const readDirectory = createLocalImageReader({
-    getFs: () => ({ resolve: async () => ({ targetKey: 'd' }), stat: async () => ({ type: 'directory' }), readBytes: async () => new Uint8Array([1]) }),
+    getFs: () => ({ lstat: async () => ({ type: 'directory' }), resolve: async () => ({ targetKey: 'd' }), readBytes: async () => new Uint8Array([1]) }),
     maxBytes: () => 1024,
   })
   await assert.rejects(readDirectory('/tmp'), /常规文件/)
 
   const readWithoutLimit = createLocalImageReader({
-    getFs: () => ({ resolve: async () => ({ targetKey: 'f' }), stat: async () => ({ type: 'file' }), readBytes: async () => new Uint8Array([1]) }),
+    getFs: () => ({ resolve: async () => ({ targetKey: 'f' }), lstat: async () => ({ type: 'file' }), readBytes: async () => new Uint8Array([1]) }),
     maxBytes: () => 0,
   })
   await assert.rejects(readWithoutLimit('/tmp/a.png'), { message: /大小上限/, code: 'LOCAL_IMAGE_LIMIT_MISSING' })
@@ -94,11 +94,19 @@ test('本地图片读取器在服务缺失、非文件、上限未配置与依�
   assert.throws(() => createLocalImageReader({ getFs: () => undefined }), /maxBytes/)
 })
 
+test('本地图片读取器拒绝最终符号链接，与聊天文件服务一致', async () => {
+  const readSymlink = createLocalImageReader({
+    getFs: () => ({ lstat: async () => ({ type: 'symlink' }), resolve: async () => ({ targetKey: 'link' }), readBytes: async () => new Uint8Array([1]) }),
+    maxBytes: () => 1024,
+  })
+  await assert.rejects(readSymlink('/tmp/link.png'), { code: 'LOCAL_IMAGE_NOT_FILE', message: /常规文件/ })
+})
+
 test('本地图片读取器把宿主超限与空文件错误原样交给调用方', async () => {
   const readOversize = createLocalImageReader({
     getFs: () => ({
+      lstat: async () => ({ type: 'file' }),
       resolve: async () => ({ targetKey: 'f' }),
-      stat: async () => ({ type: 'file' }),
       readBytes: async () => {
         throw Object.assign(new Error('file exceeds byte limit'), { code: 'FS_TOO_LARGE' })
       },
@@ -108,7 +116,7 @@ test('本地图片读取器把宿主超限与空文件错误原样交给调用�
   await assert.rejects(readOversize('/tmp/a.png'), { code: 'FS_TOO_LARGE' })
 
   const readEmpty = createLocalImageReader({
-    getFs: () => ({ resolve: async () => ({ targetKey: 'f' }), stat: async () => ({ type: 'file' }), readBytes: async () => new Uint8Array() }),
+    getFs: () => ({ lstat: async () => ({ type: 'file' }), resolve: async () => ({ targetKey: 'f' }), readBytes: async () => new Uint8Array() }),
     maxBytes: () => 1024,
   })
   await assert.rejects(readEmpty('/tmp/a.png'), { code: 'LOCAL_IMAGE_EMPTY' })

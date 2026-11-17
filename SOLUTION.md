@@ -43,7 +43,7 @@ owner: agent 主笔，项目属主审批
 |---|---|---|
 | 边界与契约已明确 | 通过 | SOLUTION.md#产品契约 |
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
-| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md, RATIONALE/C-006-image-modes.md, RATIONALE/C-007-mobile-pdf-open.md, RATIONALE/C-008-markdown-rendering.md, RATIONALE/C-010-markdown-local-images.md |
+| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md, RATIONALE/C-006-image-modes.md, RATIONALE/C-007-mobile-pdf-open.md, RATIONALE/C-008-markdown-rendering.md, RATIONALE/C-010-markdown-local-images.md, RATIONALE/C-011-local-image-read-policy.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
 | 现状差距已有 task 承接 | 通过 | T-001～T-010 已交付既有需求（completed）；无未承接差距 |
 | 可派生验证 | 通过 | SOLUTION.md#产品契约 |
@@ -63,7 +63,7 @@ flowchart LR
   plugin -->|spawn| browser[本机浏览器]
 ```
 
-会话日志是唯一的导出数据源。会话查询服务负责读取与校验日志，插件不直接触碰磁盘上的日志文件。宿主文件服务只在嵌入原图时读取消息正文引用的本地图片，读取受宿主的权限与沙箱策略约束。本机浏览器只负责把 HTML 打印成 PDF，不读取任何会话数据。
+会话日志是唯一的导出数据源。会话查询服务负责读取与校验日志，插件不直接触碰磁盘上的日志文件。宿主文件服务只在嵌入原图时读取消息正文引用的本地图片，读取权限与宿主进程一致（宿主沙箱只约束写入），最终符号链接被拒绝。本机浏览器只负责把 HTML 打印成 PDF，不读取任何会话数据。
 
 ### 一级静态分解图
 
@@ -227,7 +227,7 @@ flowchart LR
 - Markdown 图片在 `embed` 模式下按本地路径嵌入，其余模式与读取失败时呈现 `[图片: alt]`；`none` 只省略图片块，不删除 Markdown 图片的占位文字。
 - 文件块只在 `attachments` 选中时产生 `[附件: 文件名]`；文件本体从不嵌入 PDF，纯文件消息未选文件附件时不进入条目列表。
 - 附件图片只读取消息附件引用经 `ctx.attachments.readImage` 校验的字节，不按外部 URL 抓取。
-- 本地图片经宿主文件服务 `ctx.fs` 解析路径并读取，权限与沙箱策略和聊天界面显示本地图片同源；只接受常见图片扩展名且字节嗅探为真图片，读取上限取 `ctx.attachments.imageLimits.maxImageBytes`。
+- 本地图片经宿主文件服务 `ctx.fs` 解析路径并读取，读取权限与聊天界面显示本地图片一致（宿主沙箱只约束写入，两侧都用 `lstat` 拒绝最终符号链接）；只接受常见图片扩展名且字节嗅探为真图片，读取上限取 `ctx.attachments.imageLimits.maxImageBytes`。
 - 嵌入图片统一缩放到版心内：宽度不超过消息气泡，最高 220mm，不越出页面边界。
 - 用户与助手正文先按 Markdown 渲染成受控 HTML：块级标题/列表/引用/围栏代码/表格/分隔线，行内加粗/斜体/删除线/行内代码/链接与图片；原始 HTML 只按文本转义，链接只允许 http、https、mailto。
 - Markdown 图片在嵌入模式下替换为内联 `<img>`；占位、不导出与读取失败时显示 `[图片: alt]`，http、https 地址始终不抓取。
@@ -293,7 +293,7 @@ flowchart LR
 - 响应不设置 `Access-Control-Allow-Origin`，跨源读取不可用。
 - 浏览器子进程只接收插件生成的 HTML，不接触凭据与用户环境变量。
 - 错误响应只给简要原因，不回显日志内容或文件路径。
-- 本地图片读取只发生在导出边界内：路径来自会话消息正文，经宿主文件服务的沙箱与权限策略解析；只读、只接受图片扩展名与图片字节、受大小上限约束，不写回文件。
+- 本地图片读取只发生在导出边界内：路径来自会话消息正文，经宿主文件服务解析并读取，读取权限等同宿主进程（沙箱只约束写入），最终符号链接被拒绝；只读、只接受图片扩展名与图片字节、受大小上限约束，不写回文件。
 
 ## 兼容性与版本演进
 
@@ -352,7 +352,7 @@ flowchart LR
 - 不使用模板引擎，HTML 由字符串拼接与转义函数产出。
 - 渲染层热加载：按内容哈希重载模块，页面样式抽成 CSS 数据文件；不引入子进程渲染或打包器，被否方案与理由见 RATIONALE/C-009-hot-reload-render-pipeline.md。
 - Markdown 由无依赖的安全子集转换（C-008），不引入 `marked` 等运行时依赖；原始 HTML、危险协议链接与外部 Markdown 图片都不进入渲染输出。
-- Markdown 本地图片经宿主文件服务读取并内联为 data URI，不新增外部图片代理或缓存；选型与被否方案见 RATIONALE/C-010-markdown-local-images.md。
+- Markdown 本地图片经宿主文件服务读取并内联为 data URI，不新增外部图片代理或缓存；选型与被否方案见 RATIONALE/C-010-markdown-local-images.md 与 RATIONALE/C-011-local-image-read-policy.md。
 - 实测样本（2026-11-16，Chrome 156）：44 个回合块加表格与代码块输出 6 页 A4、241 KB；文本层可抽取全部中文；单次打印 1.45 秒、峰值内存 236 MB。
 - 中文字体以 Type 3 形式嵌入，文本仍可选择与搜索；若换成 TTF 轮廓字体，Chrome 通常嵌入为 CID TrueType。
 - 页脚不显示页码，理由与被否方案见 RATIONALE/C-002-no-page-numbers.md。
