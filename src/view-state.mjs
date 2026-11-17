@@ -10,6 +10,10 @@ export const DOWNLOADING_TEXT = '正在下载…'
 export const RETRY_TEXT = '重试'
 export const FALLBACK_ERROR_TEXT = '导出服务返回了意外结果'
 export const NETWORK_ERROR_TEXT = '无法连接导出服务'
+export const OPEN_PDF_TEXT = '打开完整 PDF'
+export const MOBILE_PREVIEW_HINT = '手机浏览器不支持页内多页 PDF 预览，请在浏览器中打开完整 PDF 查看全部页面。'
+/** 窄视口断点：与 SOLUTION 产品契约一致。 */
+export const NARROW_VIEWPORT_QUERY = '(max-width: 720px)'
 
 /** 错误响应头机器码到页内文案；正文存在时仍以正文为准。 */
 const ERROR_MESSAGES = {

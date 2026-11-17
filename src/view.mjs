@@ -21,6 +21,10 @@ export const VIEW_STYLE = `
 .dxp-notice p { color: var(--dsw-alias-label-caption, #6b6b6b); font-size: 13px; margin: 0; max-width: 560px; white-space: pre-wrap; }
 .dxp-spinner { animation: dxp-spin 0.9s linear infinite; border: 2px solid var(--dsw-alias-border-l3, #d0d0d0); border-radius: 50%; border-top-color: var(--dsw-alias-state-business-primary, #2f6fed); height: 22px; width: 22px; }
 .dxp-error { color: var(--dsw-alias-state-error-primary, #c0392b); font-size: 13px; margin: 0; max-width: 560px; white-space: pre-wrap; }
+.dxp-mobile-preview { align-items: center; background: var(--dsw-alias-bg-layer-1, #ffffff); border: 1px solid var(--dsw-alias-border-l2, #e3e3e3); border-radius: 10px; display: flex; flex: 1; flex-direction: column; gap: 14px; justify-content: center; min-height: 420px; padding: 24px; text-align: center; }
+.dxp-mobile-hint { color: var(--dsw-alias-label-caption, #6b6b6b); font-size: 13px; line-height: 1.7; margin: 0; max-width: 420px; }
+.dxp-open { background: var(--dsw-alias-state-business-primary, #2f6fed); border-radius: 8px; color: #ffffff; font-size: 14px; padding: 10px 18px; text-decoration: none; }
+.dxp-mobile-file { color: var(--dsw-alias-label-caption, #6b6b6b); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
 .dxp-retry { background: transparent; border: 1px solid var(--dsw-alias-border-l3, #d0d0d0); border-radius: 8px; color: inherit; cursor: pointer; font: inherit; font-size: 13px; padding: 6px 14px; }
 .dxp-download-error { color: var(--dsw-alias-state-error-primary, #c0392b); font-size: 12px; margin: 0; }
 @keyframes dxp-spin { to { transform: rotate(360deg); } }
@@ -31,6 +35,26 @@ const DEFAULT_OPTIONS = { files: false, images: 'placeholder', tools: false }
 
 function includeFromOptions(options) {
   return INCLUDE_TOKENS.filter((token) => (token === 'attachments' ? options.files === true : options[token] === true))
+}
+
+/** 订阅窄视口断点；服务端或缺少 matchMedia 时按桌面处理。 */
+function useNarrowViewport() {
+  const [narrow, setNarrow] = React.useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(NARROW_VIEWPORT_QUERY).matches,
+  )
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
+    const media = window.matchMedia(NARROW_VIEWPORT_QUERY)
+    const onChange = (event) => setNarrow(event.matches)
+    setNarrow(media.matches)
+    if (typeof media.addEventListener === 'function') media.addEventListener('change', onChange)
+    else if (typeof media.addListener === 'function') media.addListener(onChange)
+    return () => {
+      if (typeof media.removeEventListener === 'function') media.removeEventListener('change', onChange)
+      else if (typeof media.removeListener === 'function') media.removeListener(onChange)
+    }
+  }, [])
+  return narrow
 }
 
 /**
@@ -45,6 +69,7 @@ export function PdfView(props) {
   const [state, setState] = React.useState(() => initialViewState(blank))
   const [download, setDownload] = React.useState({ kind: 'idle' })
   const [attempt, setAttempt] = React.useState(0)
+  const narrow = useNarrowViewport()
   const [selection, setSelection] = React.useState(() => ({ sessionId, options: DEFAULT_OPTIONS }))
   const downloadAbort = React.useRef(null)
   const options = selection.sessionId === sessionId ? selection.options : DEFAULT_OPTIONS
@@ -186,14 +211,23 @@ export function PdfView(props) {
     React.createElement(
       'div',
       { className: 'dxp-body' },
-      renderBody(displayState, () => setAttempt((value) => value + 1)),
+      renderBody(displayState, () => setAttempt((value) => value + 1), narrow),
       download.kind === 'error' ? React.createElement('p', { className: 'dxp-download-error' }, download.message) : null,
     ),
   )
 }
 
-function renderBody(state, retry) {
+function renderBody(state, retry, narrow) {
   if (state.kind === 'ready') {
+    if (narrow) {
+      return React.createElement(
+        'div',
+        { className: 'dxp-mobile-preview', role: 'region', 'aria-label': 'PDF 预览' },
+        React.createElement('p', { className: 'dxp-mobile-hint' }, MOBILE_PREVIEW_HINT),
+        React.createElement('a', { className: 'dxp-open', href: state.url, target: '_blank', rel: 'noopener noreferrer' }, OPEN_PDF_TEXT),
+        React.createElement('p', { className: 'dxp-mobile-file' }, state.filename),
+      )
+    }
     return React.createElement('iframe', { className: 'dxp-frame', src: state.url, title: 'PDF 预览' })
   }
   if (state.kind === 'loading') {

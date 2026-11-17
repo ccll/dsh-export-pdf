@@ -1,4 +1,4 @@
-// 测试锚点: R-01-006/AC-01 R-01-006/AC-02
+// 测试锚点: R-01-006/AC-01 R-01-006/AC-02 R-01-013/AC-03
 // 失败路径：把 browserPath 配成不存在的文件，导出必须在渲染前给出页内可读
 // 提示，不产生预览/下载，也不留下空文件；重试仍显式失败而不是空白。
 export const boot = { pluginConfig: { browserPath: '/definitely/missing/dsh-pdf-browser' } }
@@ -81,4 +81,10 @@ export default async function pdfFailure({ page, url, assert }) {
   assert.equal(await page.locator('iframe[title="PDF 预览"]').count(), 0, '500 时不显示预览')
   assert.equal(await download.isDisabled(), true, '500 时下载不可用')
   await page.unroute('**/api/session.pdf*')
+
+  // R-01-013/AC-03：失败状态下缩到窄视口，不得出现“打开完整 PDF”入口。
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForTimeout(300)
+  assert.equal(await page.getByRole('link', { name: '打开完整 PDF' }).count(), 0, '失败时不显示打开完整 PDF')
+  assert.equal(await page.locator('iframe[title="PDF 预览"]').count(), 0, '失败时不显示 iframe')
 }
