@@ -8,8 +8,13 @@ import { test } from 'node:test'
 import { detectCjkFont } from '../src/fonts.mjs'
 import { renderPdfWithBrowser, resolveBrowserPath } from '../src/chrome.mjs'
 import { foldTranscript } from '../src/transcript.mjs'
-import { renderTranscriptHtml } from '../src/render.mjs'
+import { renderTranscriptHtml as renderHtmlDocument } from '../src/render.mjs'
+import { readPageStyle } from '../src/page-style.mjs'
 import { createExporter } from '../src/exporter.mjs'
+
+/** 真实页面样式表；PDF 用例按这份 CSS 打印。 */
+const PAGE_STYLE = readPageStyle().text
+const renderTranscriptHtml = (entries) => renderHtmlDocument(entries, PAGE_STYLE)
 
 const PARAGRAPHS = 60
 const CJK_LINE = '这是一段用于验证中文分页与字形嵌入的正文，包含标点、数字 12345 与 English words。'
@@ -259,6 +264,7 @@ test('真实浏览器打印：图片占位/嵌入原图/不导出', { timeout: 1
     readSession: async () => ({ session: { id: 's', origin: 'main', delegationDepth: 0 }, events }),
     readImage: async () => ({ data: image, ref }),
     hasCjkFont: async () => true,
+    loadPageStyle: () => ({ text: PAGE_STYLE, version: 'test' }),
     renderPdf: (html) => renderPdfWithBrowser({ html, browserPath, timeoutMs: 60_000 }),
   })
   const directory = await mkdtemp(join(tmpdir(), 'dsh-pdf-image-'))

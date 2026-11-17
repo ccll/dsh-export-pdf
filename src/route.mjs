@@ -17,15 +17,25 @@ const SESSION_ID_MAX = 200
 const SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]+$/
 
 /**
+ * 参数词表与归一函数的静态实现，供未注入 helpers 的调用方（单元测试）使用。
+ * 宿主运行时注入渲染管线的同名实现，使新增 token 之类改动无需重启。
+ */
+const STATIC_HELPERS = { INCLUDE_TOKENS, IMAGE_MODES, normalizeInclude, normalizeImageMode, pdfFilename }
+
+/**
  * 处理一次导出请求。参数校验、状态码、响应头与 HEAD 语义集中在这里，
  * 不把日志内容、stderr 或宿主路径回给浏览器。
  * @param {Request} request Fetch 请求（已过宿主的 Host/Origin 与浏览器鉴权栅栏）
  * @param {{ exportSession: (sessionId: string, include?: readonly string[], imageMode?: string) => Promise<{ kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' }> }} exporter 导出编排器
- * @param {{ logError?: (message: string, error: unknown) => void }} [options]
+ * @param {{
+ *   logError?: (message: string, error: unknown) => void,
+ *   helpers?: { INCLUDE_TOKENS: readonly string[], IMAGE_MODES: readonly string[], normalizeInclude: (value: unknown) => string[], normalizeImageMode: (value: unknown) => string, pdfFilename: (sessionId: string, include?: readonly string[], imageMode?: string) => string },
+ * }} [options]
  * @returns {Promise<Response>}
  */
 export async function handlePdfRequest(request, exporter, options = {}) {
   const logError = options.logError ?? (() => {})
+  const helpers = options.helpers ?? STATIC_HELPERS
   const method = request.method.toUpperCase()
   if (method !== 'GET' && method !== 'HEAD') {
     return textResponse(405, '只支持 GET 与 HEAD', method, { code: 'request', headers: { allow: 'GET, HEAD' } })
@@ -40,13 +50,13 @@ export async function handlePdfRequest(request, exporter, options = {}) {
   if (disposition !== 'inline' && disposition !== 'attachment') {
     return textResponse(400, 'disposition 只能是 inline 或 attachment', method, { code: 'request' })
   }
-  const include = parseInclude(url.searchParams.getAll('include'))
+  const include = parseInclude(url.searchParams.getAll('include'), helpers)
   if (include === null) {
-    return textResponse(400, `include 只能包含 ${INCLUDE_TOKENS.join(' 与 ')}，且不得重复`, method, { code: 'request' })
+    return textResponse(400, `include 只能包含 ${helpers.INCLUDE_TOKENS.join(' 与 ')}，且不得重复`, method, { code: 'request' })
   }
-  const imageMode = parseImageMode(url.searchParams.getAll('image'))
+  const imageMode = parseImageMode(url.searchParams.getAll('image'), helpers)
   if (imageMode === null) {
-    return textResponse(400, `image 只能是 ${IMAGE_MODES.join('、')}`, method, { code: 'request' })
+    return textResponse(400, `image 只能是 ${helpers.IMAGE_MODES.join('、')}`, method, { code: 'request' })
   }
 
   let result
@@ -54,13 +64,13 @@ export async function handlePdfRequest(request, exporter, options = {}) {
     result = await exporter.exportSession(sessionId, include, imageMode)
   } catch (error) {
     if (!(error instanceof PdfExportError)) logError(`会话 ${sessionId} 导出时出现未分类错误`, error)
-    return errorResponse(error, method)
+    return exportErrorResponse(error, method)
   }
 
   if (result.kind === 'empty') return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } })
   const headers = {
     'content-type': 'application/pdf',
-    'content-disposition': `${disposition}; filename="${pdfFilename(sessionId, include, imageMode)}"`,
+    'content-disposition': `${disposition}; filename="${helpers.pdfFilename(sessionId, include, imageMode)}"`,
     'content-length': String(result.bytes.byteLength),
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
@@ -72,35 +82,44 @@ export async function handlePdfRequest(request, exporter, options = {}) {
  * 解析 include 查询参数：缺省或空值为 []；只接受合法 token，重复或未知值
  * 返回 null 由调用方转成 400。顺序按固定 token 顺序归一，便于缓存键稳定。
  * @param {string[]} values 同名的全部 include 参数值
+ * @param {{ INCLUDE_TOKENS: readonly string[], normalizeInclude: (value: unknown) => string[] }} helpers 词表与归一函数
  * @returns {string[] | null}
  */
-function parseInclude(values) {
+function parseInclude(values, helpers) {
   if (values.length === 0) return []
   if (values.length > 1) return null
   const raw = values[0]
   if (raw === '') return []
   const tokens = raw.split(',')
-  if (tokens.some((token) => !INCLUDE_TOKENS.includes(token))) return null
+  if (tokens.some((token) => !helpers.INCLUDE_TOKENS.includes(token))) return null
   if (new Set(tokens).size !== tokens.length) return null
-  return normalizeInclude(tokens)
+  return helpers.normalizeInclude(tokens)
 }
 
 /**
  * 解析 image 查询参数：缺省或空值为 placeholder；只接受三种模式，重复或未知值
  * 返回 null 由调用方转成 400。
  * @param {string[]} values 同名的全部 image 参数值
+ * @param {{ IMAGE_MODES: readonly string[], normalizeImageMode: (value: unknown) => string }} helpers 词表与归一函数
  * @returns {'none' | 'placeholder' | 'embed' | null}
  */
-function parseImageMode(values) {
+function parseImageMode(values, helpers) {
   if (values.length === 0) return 'placeholder'
   if (values.length > 1) return null
   const raw = values[0]
   if (raw === '') return 'placeholder'
-  if (!IMAGE_MODES.includes(raw)) return null
-  return normalizeImageMode(raw)
+  if (!helpers.IMAGE_MODES.includes(raw)) return null
+  return helpers.normalizeImageMode(raw)
 }
 
-function errorResponse(error, method) {
+/**
+ * 把导出错误映射成对外的状态码、机器码与简要原因。宿主在管线不可用时也用它，
+ * 保证失败路径与正常导出共用同一套映射。
+ * @param {unknown} error 导出或加载时抛出的错误
+ * @param {string} method 请求方法，决定是否带正文
+ * @returns {Response}
+ */
+export function exportErrorResponse(error, method) {
   if (error instanceof SessionUnavailableError) return textResponse(404, '会话不存在或日志不可读', method, { code: 'session' })
   if (error instanceof SubagentExportError) return textResponse(400, '不支持导出子会话', method, { code: 'subagent' })
   if (error instanceof FontUnavailableError) return textResponse(503, '缺少可用的中文字体，无法导出', method, { code: 'font' })

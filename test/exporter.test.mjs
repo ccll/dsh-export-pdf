@@ -35,6 +35,7 @@ function makeExporter({
   readImage,
   renderPdf = async () => PDF,
   hasCjkFont = async () => true,
+  loadPageStyle = () => ({ text: 'body {}', version: 'v1' }),
   maxConcurrentRenders = 2,
   cacheMaxEntries,
   logError = () => {},
@@ -44,6 +45,7 @@ function makeExporter({
     readImage,
     renderPdf,
     hasCjkFont,
+    loadPageStyle,
     maxConcurrentRenders,
     ...(cacheMaxEntries === undefined ? {} : { cacheMaxEntries }),
     logError,
@@ -320,6 +322,7 @@ test('缓存按条数上限淘汰最久未使用结果', async () => {
       return PDF
     },
     hasCjkFont: async () => true,
+    loadPageStyle: () => ({ text: 'body {}', version: 'v1' }),
     cacheMaxEntries: 1,
   })
   await exporter.exportSession('a')
@@ -328,10 +331,46 @@ test('缓存按条数上限淘汰最久未使用结果', async () => {
   assert.equal(renders, 3, '容量 1 时 a 的缓存已被 b 淘汰')
 })
 
+test('页面样式版本变化使缓存失效并重渲染', async () => {
+  let renders = 0
+  let version = 'v1'
+  const exporter = createExporter({
+    readSession: async () => snapshot([userEvent(1)]),
+    renderPdf: async () => {
+      renders += 1
+      return PDF
+    },
+    hasCjkFont: async () => true,
+    loadPageStyle: () => ({ text: 'body {}', version }),
+  })
+  await exporter.exportSession('s')
+  await exporter.exportSession('s')
+  assert.equal(renders, 1, '样式版本不变时命中缓存')
+  version = 'v2'
+  await exporter.exportSession('s')
+  assert.equal(renders, 2, '样式版本变化后重新渲染')
+})
+
+test('页面样式不可读映射为渲染失败', async () => {
+  const exporter = createExporter({
+    readSession: async () => snapshot([userEvent(1)]),
+    renderPdf: async () => PDF,
+    hasCjkFont: async () => true,
+    loadPageStyle: () => {
+      throw new Error('样式表缺失')
+    },
+  })
+  await assert.rejects(exporter.exportSession('s'), RenderFailedError)
+})
+
 test('依赖缺失在创建期报错', () => {
   assert.throws(() => createExporter({}), /readSession/)
   assert.throws(() => createExporter({ readSession: async () => snapshot([]) }), /renderPdf/)
   assert.throws(() => createExporter({ readSession: async () => snapshot([]), renderPdf: async () => PDF }), /hasCjkFont/)
+  assert.throws(
+    () => createExporter({ readSession: async () => snapshot([]), renderPdf: async () => PDF, hasCjkFont: async () => true }),
+    /loadPageStyle/,
+  )
 })
 const IMAGE_REF = { attachmentId: 'sha256:img', mediaType: 'image/png', bytes: 4 }
 const IMAGE_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47])

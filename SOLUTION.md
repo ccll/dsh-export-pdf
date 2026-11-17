@@ -231,6 +231,8 @@ flowchart LR
 - 会话日志只读，导出不写回日志文件。
 - PDF 不含页眉页脚与页码，页面内容只来自转录。
 - 不使用 Chrome 默认页眉页脚，因为它会写入日期、标题与临时文件路径。
+- 页面样式表（`src/page-style.css`）是数据文件：导出时按内容读取并注入 `<style>`，同一次导出的预览与下载共用同一份样式；样式版本进 PDF 缓存键，改样式后旧结果失效。
+- 渲染管线由纯逻辑模块（选择、命名、Markdown、折叠、图片、HTML 渲染、导出编排）按源码内容哈希热加载：源码变化后下一次导出使用新模块并重建编排器，PDF 缓存随之清空；错误类型始终来自静态 `errors.mjs`，`instanceof` 映射不因热加载而失效。
 
 ## 导出状态与生命周期
 
@@ -250,6 +252,8 @@ flowchart LR
 - 子进程以非零码退出时取其标准错误的前若干行作为失败说明，写入宿主日志，响应只给简要原因。
 - 临时 HTML 与 PDF 文件写在系统临时目录，用尽即删，异常路径同样删除。
 - 并发渲染数受配置上限约束，超出时排队而非并行启动多个浏览器进程。
+- 渲染管线按源码内容哈希即时生成并加载；生成或加载失败时沿用上一版管线并记日志，从未成功加载过才以 `500` 结束。
+- 页面样式表不可读时以 `500`（错误机器码 `render`）结束并记录原因，不交付无样式 PDF。
 
 ## 外部集成
 
@@ -283,6 +287,7 @@ flowchart LR
 - 宿主下限为 `0.2.0-rc.2`，即当前安装版本；`conversation.view` 插槽与 `connection.fetch` 路由在该版本已存在。
 - 插件注册的视图条目 id 固定为 `pdf`，不与其他视图冲突。
 - 路由路径不做版本号，破坏性变更走新路径并保留旧路径一个版本。
+- 热加载生成的临时模块写在系统临时目录，文件名带内容哈希，一小时前的旧版本会被回收；进程内保留已加载的各版本模块，规模随本进程存活期内的源码版本数增长。
 
 ## 需求追溯索引
 
@@ -312,13 +317,16 @@ flowchart LR
   - 浏览器半区注册一个 `conversation.view` 条目，承担预览、内容选择与下载交互；选择变化会取消旧请求并按新选择重取。
   - 转录折叠与 HTML 渲染是纯函数；图片解析经过附件服务，负责把引用转成内联字节并对失败回退占位。
   - 浏览器进程按需启动，一次渲染一个进程，结束即回收。
-- 代码位置: src/selection.mjs, src/images.mjs, src/html.mjs, src/markdown.mjs, src/host.mjs, src/route.mjs, src/exporter.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs, src/client.mjs
+  - 渲染管线由 `pipeline.mjs` 按内容哈希加载，页面样式由 `page-style.mjs` 按内容读取；这两处改动在导出时生效，不需要重启宿主（C-009）。
+  - 宿主装配、路由与配置在启动时固定，改动它们仍需重启宿主。
+- 代码位置: src/selection.mjs, src/images.mjs, src/html.mjs, src/markdown.mjs, src/host.mjs, src/route.mjs, src/exporter.mjs, src/naming.mjs, src/pipeline.mjs, src/page-style.mjs, src/page-style.css, src/view.mjs, src/view-state.mjs, src/client.mjs
 - 实现: 双端
 
 ## 横切约束
 
 - 不引入运行时 npm 依赖，PDF 生成只借助本机浏览器可执行文件。
 - 源码是不需编译的纯 ESM；浏览器半区由 `scripts/build-client.mjs` 拼装成宿主模块系统要求的 `window.__ModuleLoader__.load(...)` 工厂脚本。
+- 宿主半区的渲染管线在首次导出时按源码内容即时生成自包含模块（临时目录、内容哈希作版本），运行期不需要构建步骤；浏览器半区仍走构建脚本。
 - 视图条目使用固定标签 `PDF`，不注册其它插槽。
 - 所有失败转成页内提示，不向宿主抛出未处理异常。
 - 临时文件与子进程在成功、失败、取消三条路径上都回收。
@@ -326,8 +334,9 @@ flowchart LR
 ## 技术选型
 
 - PDF 生成采用“HTML 加本机 Chromium 打印”，理由与被否方案见 RATIONALE/C-001-chromium-print-html.md。
-- 预览采用浏览器原生 PDF 查看器，经同源路由直接加载 PDF，不引入 PDF.js；窄视口受内置查看器限制，改为在新标签页用系统查看器打开同一份 PDF。
+- 预览采用浏览器原生 PDF 查看器，经同源路由直接加载 PDF，不引入 PDF.js；窄视口受内置查看器限制，改为在新标签页用系统查看器打开 PDF。
 - 不使用模板引擎，HTML 由字符串拼接与转义函数产出。
+- 渲染层热加载：按内容哈希重载模块，页面样式抽成 CSS 数据文件；不引入子进程渲染或打包器，被否方案与理由见 RATIONALE/C-009-hot-reload-render-pipeline.md。
 - Markdown 由无依赖的安全子集转换（C-008），不引入 `marked` 等运行时依赖；原始 HTML、危险协议链接与外部 Markdown 图片都不进入渲染输出。
 - 实测样本（2026-11-16，Chrome 156）：44 个回合块加表格与代码块输出 6 页 A4、241 KB；文本层可抽取全部中文；单次打印 1.45 秒、峰值内存 236 MB。
 - 中文字体以 Type 3 形式嵌入，文本仍可选择与搜索；若换成 TTF 轮廓字体，Chrome 通常嵌入为 CID TrueType。

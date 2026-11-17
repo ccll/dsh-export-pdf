@@ -1,7 +1,18 @@
 // 测试锚点: R-01-005/AC-02 R-01-010/AC-01 R-01-010/AC-02 R-01-012/AC-02 R-01-012/AC-03
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { PAGE_STYLE, escapeHtml, renderTranscriptHtml } from '../src/render.mjs'
+import { escapeHtml, renderTranscriptHtml as renderHtmlDocument } from '../src/render.mjs'
+import { readPageStyle } from '../src/page-style.mjs'
+
+/** 真实页面样式表：版式断言直接读 CSS，不再依赖 JS 里的样式常量。 */
+const PAGE_STYLE = readPageStyle().text
+/** 渲染完整 HTML 文档并注入真实页面样式。 */
+const renderTranscriptHtml = (entries) => renderHtmlDocument(entries, PAGE_STYLE)
+
+test('渲染需要页面样式文本', () => {
+  assert.throws(() => renderHtmlDocument([{ kind: 'user', text: 'x' }], ''), /需要页面样式文本/)
+  assert.throws(() => renderHtmlDocument([{ kind: 'user', text: 'x' }], undefined), /需要页面样式文本/)
+})
 
 test('HTML 元字符全部转义', () => {
   assert.equal(escapeHtml('<script>alert("x")</script>&\'"'), '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;&amp;&#39;&quot;')

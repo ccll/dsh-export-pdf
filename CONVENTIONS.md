@@ -11,6 +11,9 @@ owner: agent 主笔，项目属主审批
 - 开发期不得重启或停掉正在运行的 dsh 主实例；需要实测浏览器时，另起独立实例。
   - 主实例指东家正在使用的 `dsh web` / `dsh life` 进程；重启时机由东家决定。
   - 独立实例用隔离的 `DSH_HOME` 与随机端口（`dsh web --port 0`，e2e 运行器自带），验证后自行清理。
+- 改动生效方式：渲染层（`src/` 纯逻辑模块与 `src/page-style.css`）在导出时热加载，改完直接刷新 PDF 视图即可。
+  - 客户端 bundle 改动走 `pnpm build:client`，由客户端 HMR 自动重载。
+  - 宿主装配与外壳（`host.mjs`、`route.mjs`、`config.mjs`、`chrome.mjs`、`fonts.mjs`、`pipeline.mjs`、`page-style.mjs`、依赖或 `cordis.patch.yml`）仍需重启，重启时机由东家决定。
 
 ## Git 提交规范
 

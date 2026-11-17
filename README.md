@@ -74,6 +74,12 @@ pnpm test:e2e       # browser acceptance in an isolated DSH home
 pnpm lint:agentmap  # AgentMap structure, traceability, contract coverage
 ```
 
+What takes effect when:
+
+- The render layer (the pure logic modules under `src/` and `src/page-style.css`) hot-reloads at export time; edit and reload the PDF view, no `dsh` restart.
+- Client bundle changes go through `pnpm build:client`; the client HMR receiver reloads the page automatically.
+- Host wiring and shell (`src/host.mjs`, `src/route.mjs`, `src/config.mjs`, `src/chrome.mjs`, `src/fonts.mjs`, `src/pipeline.mjs`, `src/page-style.mjs`, dependencies, and `cordis.patch.yml`) are fixed at boot and still need a restart.
+
 `pnpm test` skips the real-browser integration when Chrome or a CJK font is absent. `pnpm test:e2e` boots a temporary `$DSH_HOME` with a mock LLM, installs this checkout, starts `dsh web` on a random port, and drives system Chrome through `playwright-core`; it never touches a running GUI or the user's web profile. Set `CHROME_PATH` when Chrome is not at `/usr/bin/google-chrome`.
 
 Git hooks live in `.githooks/` and are enabled per clone:

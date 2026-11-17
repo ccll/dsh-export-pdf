@@ -74,6 +74,12 @@ pnpm test:e2e       # 隔离 DSH 环境中的浏览器验收
 pnpm lint:agentmap  # AgentMap 结构、追溯与契约覆盖
 ```
 
+改动生效方式：
+
+- 渲染层（`src/` 下的纯逻辑模块与 `src/page-style.css`）在导出时热加载，改完刷新 PDF 视图即可，不需要重启 `dsh`。
+- 客户端 bundle 改动走 `pnpm build:client`，由客户端 HMR 自动重载页面。
+- 宿主装配与外壳（`src/host.mjs`、`src/route.mjs`、`src/config.mjs`、`src/chrome.mjs`、`src/fonts.mjs`、`src/pipeline.mjs`、`src/page-style.mjs`、依赖与 `cordis.patch.yml`）在启动时固定，改动仍需重启。
+
 `pnpm test` 在宿主缺少 Chrome 或 CJK 字体时跳过真实浏览器集成。`pnpm test:e2e` 会创建临时 `$DSH_HOME`、启动 mock LLM、安装本仓库、用随机端口运行 `dsh web`，再通过 `playwright-core` 驱动系统 Chrome；不触碰正在运行的 GUI 或用户的 web profile。Chrome 不在 `/usr/bin/google-chrome` 时用 `CHROME_PATH` 指定。
 
 Git 钩子位于 `.githooks/`，需要在每个克隆中单独启用：

@@ -2,7 +2,7 @@ import { foldTranscript } from './transcript.mjs'
 import { normalizeImageMode, normalizeInclude, selectionKey } from './selection.mjs'
 import { resolveEmbeddedImages } from './images.mjs'
 import { renderTranscriptHtml } from './render.mjs'
-import { FontUnavailableError, SessionUnavailableError, SubagentExportError } from './errors.mjs'
+import { FontUnavailableError, RenderFailedError, SessionUnavailableError, SubagentExportError } from './errors.mjs'
 
 /** 进程内导出结果缓存的最大条数；超出按最久未使用淘汰。内部参数，不对外承诺。 */
 export const MAX_CACHE_ENTRIES = 32
@@ -15,6 +15,7 @@ export const MAX_CACHE_ENTRIES = 32
  *   readImage?: (ref: any) => Promise<{ data: Uint8Array, ref?: any }>,
  *   renderPdf: (html: string) => Promise<Uint8Array>,
  *   hasCjkFont: () => Promise<boolean>,
+ *   loadPageStyle: () => { text: string, version: string },
  *   maxConcurrentRenders?: number,
  *   cacheMaxEntries?: number,
  *   logError?: (message: string, error: unknown) => void,
@@ -26,6 +27,7 @@ export function createExporter(dependencies) {
     readImage,
     renderPdf,
     hasCjkFont,
+    loadPageStyle,
     maxConcurrentRenders = 2,
     cacheMaxEntries = MAX_CACHE_ENTRIES,
     logError = () => {},
@@ -33,8 +35,9 @@ export function createExporter(dependencies) {
   if (typeof readSession !== 'function') throw new Error('export-pdf: readSession 依赖缺失')
   if (typeof renderPdf !== 'function') throw new Error('export-pdf: renderPdf 依赖缺失')
   if (typeof hasCjkFont !== 'function') throw new Error('export-pdf: hasCjkFont 依赖缺失')
+  if (typeof loadPageStyle !== 'function') throw new Error('export-pdf: loadPageStyle 依赖缺失')
 
-  /** @type {Map<string, { length: number, result: { kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' } }>} */
+  /** @type {Map<string, { length: number, styleVersion: string, result: { kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' } }>} */
   const cache = new Map()
   /** @type {Map<string, Promise<{ kind: 'pdf', bytes: Uint8Array } | { kind: 'empty' }>>} */
   const inFlight = new Map()
@@ -51,12 +54,19 @@ export function createExporter(dependencies) {
   async function exportSession(sessionId, include = [], imageMode = 'placeholder') {
     const selected = normalizeInclude(include)
     const mode = normalizeImageMode(imageMode)
+    let pageStyle
+    try {
+      pageStyle = loadPageStyle()
+    } catch (error) {
+      logError(`会话 ${sessionId} 的页面样式表不可读`, error)
+      throw new RenderFailedError()
+    }
     const key = cacheKey(sessionId, selected, mode)
     for (;;) {
       const snapshot = await readSnapshot(sessionId)
       const length = snapshot.events.length
       const cached = readCache(key)
-      if (cached !== undefined && cached.length === length) return cached.result
+      if (cached !== undefined && cached.length === length && cached.styleVersion === pageStyle.version) return cached.result
 
       const pending = inFlight.get(key)
       if (pending !== undefined) {
@@ -65,11 +75,11 @@ export function createExporter(dependencies) {
         continue
       }
 
-      const task = renderSnapshot(sessionId, snapshot, selected, mode)
+      const task = renderSnapshot(sessionId, snapshot, selected, mode, pageStyle.text)
       inFlight.set(key, task)
       try {
         const result = await task
-        writeCache(key, { length, result })
+        writeCache(key, { length, styleVersion: pageStyle.version, result })
         return result
       } finally {
         inFlight.delete(key)
@@ -96,14 +106,14 @@ export function createExporter(dependencies) {
     return snapshot
   }
 
-  async function renderSnapshot(sessionId, snapshot, include, imageMode) {
+  async function renderSnapshot(sessionId, snapshot, include, imageMode, pageStyle) {
     let entries = foldTranscript(snapshot.events, { include, imageMode })
     if (entries.length === 0) return { kind: 'empty' }
     if (!(await hasCjkFont())) throw new FontUnavailableError()
     if (imageMode === 'embed') {
       entries = await resolveEmbeddedImages(entries, { readImage, logError })
     }
-    const html = renderTranscriptHtml(entries)
+    const html = renderTranscriptHtml(entries, pageStyle)
     try {
       const bytes = await limiter.run(() => renderPdf(html))
       return { kind: 'pdf', bytes }

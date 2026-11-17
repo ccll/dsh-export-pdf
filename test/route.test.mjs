@@ -39,6 +39,30 @@ test('GET 成功返回 PDF 与 inline 文件名', async () => {
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), PDF)
 })
 
+test('注入的 helpers 决定词表与文件名', async () => {
+  const helpers = {
+    INCLUDE_TOKENS: ['hot'],
+    IMAGE_MODES: ['none', 'placeholder', 'embed'],
+    normalizeInclude: (value) => value,
+    normalizeImageMode: (value) => value,
+    pdfFilename: () => 'hot.pdf',
+  }
+  const ok = await handlePdfRequest(
+    request(`?sessionId=${SESSION_ID}&include=hot`),
+    exporterReturning({ kind: 'pdf', bytes: PDF }),
+    { helpers },
+  )
+  assert.equal(ok.status, 200)
+  assert.equal(ok.headers.get('content-disposition'), 'inline; filename="hot.pdf"')
+
+  const rejected = await handlePdfRequest(
+    request(`?sessionId=${SESSION_ID}&include=tools`),
+    exporterReturning({ kind: 'pdf', bytes: PDF }),
+    { helpers },
+  )
+  assert.equal(rejected.status, 400, '注入词表之外的 token 被拒绝')
+})
+
 test('attachment 取 disposition 参数', async () => {
   const response = await handlePdfRequest(
     request(`?sessionId=${SESSION_ID}&disposition=attachment`),
