@@ -1,6 +1,6 @@
 import { foldTranscript } from './transcript.mjs'
 import { normalizeImageMode, normalizeInclude, selectionKey } from './selection.mjs'
-import { resolveEmbeddedImages } from './images.mjs'
+import { resolveEmbeddedImages, resolveMarkdownImages } from './images.mjs'
 import { renderTranscriptHtml } from './render.mjs'
 import { FontUnavailableError, RenderFailedError, SessionUnavailableError, SubagentExportError } from './errors.mjs'
 
@@ -13,6 +13,7 @@ export const MAX_CACHE_ENTRIES = 32
  * @param {{
  *   readSession: (sessionId: string) => Promise<{ session?: any, events: readonly any[] }>,
  *   readImage?: (ref: any) => Promise<{ data: Uint8Array, ref?: any }>,
+ *   readLocalImage?: (path: string, options: { cwd?: string }) => Promise<Uint8Array>,
  *   renderPdf: (html: string) => Promise<Uint8Array>,
  *   hasCjkFont: () => Promise<boolean>,
  *   loadPageStyle: () => { text: string, version: string },
@@ -25,6 +26,7 @@ export function createExporter(dependencies) {
   const {
     readSession,
     readImage,
+    readLocalImage,
     renderPdf,
     hasCjkFont,
     loadPageStyle,
@@ -110,10 +112,12 @@ export function createExporter(dependencies) {
     let entries = foldTranscript(snapshot.events, { include, imageMode })
     if (entries.length === 0) return { kind: 'empty' }
     if (!(await hasCjkFont())) throw new FontUnavailableError()
+    let images = new Map()
     if (imageMode === 'embed') {
       entries = await resolveEmbeddedImages(entries, { readImage, logError })
+      images = await resolveMarkdownImages(entries, { readLocalImage, cwd: snapshot.session?.cwd, logError })
     }
-    const html = renderTranscriptHtml(entries, pageStyle)
+    const html = renderTranscriptHtml(entries, pageStyle, { images })
     try {
       const bytes = await limiter.run(() => renderPdf(html))
       return { kind: 'pdf', bytes }

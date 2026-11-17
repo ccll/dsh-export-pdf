@@ -11,6 +11,40 @@ export const name = 'dsh-export-pdf'
 export const inject = ['connection', 'sessionQuery', 'attachments']
 
 /**
+ * 宿主的文件服务。不写进 `inject`：宿主没有该服务时插件仍要能装载并导出，
+ * 只是 Markdown 本地图片退回占位文字；有该服务时权限与沙箱策略和 GUI 的
+ * `/api/file` 同源。
+ * @param {any} ctx 宿主上下文
+ * @returns {any}
+ */
+function hostFileSystem(ctx) {
+  return typeof ctx.get === 'function' ? ctx.get('fs') : undefined
+}
+
+/**
+ * 构造本地图片读取函数：路径解析、文件类型检查与读取全部交给宿主的文件服务，
+ * 读取上限沿用附件图片准入上限，避免单张图把整份导出撑爆。
+ * @param {{ getFs: () => any, maxBytes: () => number }} dependencies
+ * @returns {(path: string, options?: { cwd?: string }) => Promise<Uint8Array>}
+ */
+export function createLocalImageReader({ getFs, maxBytes }) {
+  if (typeof getFs !== 'function') throw new Error('export-pdf: 本地图片读取器缺少 getFs')
+  if (typeof maxBytes !== 'function') throw new Error('export-pdf: 本地图片读取器缺少 maxBytes')
+  return async (path, options = {}) => {
+    const fs = getFs()
+    if (fs === undefined || fs === null) throw new Error('宿主文件服务不可用')
+    const limit = maxBytes()
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error('图片大小上限未配置')
+    const target = await fs.resolve(path, options.cwd === undefined ? undefined : { cwd: options.cwd })
+    const info = await fs.stat(target)
+    if (info === undefined || info.type !== 'file') throw new Error('图片不是常规文件')
+    const data = await fs.readBytes(target, undefined, limit)
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) throw new Error('图片文件为空')
+    return data
+  }
+}
+
+/**
  * 注册 `/api/session.pdf` 路由。路由本身由 Connection 的 `/api` 桥完成
  * Host/Origin 与浏览器会话鉴权，插件只做参数校验、导出编排与响应构造。
  *
@@ -31,6 +65,11 @@ export function apply(ctx, rawConfig = {}) {
 
   /** 按源码内容热加载渲染管线；这里只创建一次，缓存与日志随实例走。 */
   const pipelineLoader = createPipelineLoader({ logError })
+  /** 本地图片读取器：宿主文件服务与附件图片上限在读取时取，便于热路径随宿主状态变化。 */
+  const readLocalImage = createLocalImageReader({
+    getFs: () => hostFileSystem(ctx),
+    maxBytes: () => ctx.attachments.imageLimits.maxImageBytes,
+  })
   /** 当前管线版本对应的编排器；管线换版就重建，缓存随之清空。 */
   let active = null
 
@@ -39,6 +78,7 @@ export function apply(ctx, rawConfig = {}) {
     const exporter = pipeline.createExporter({
       readSession: (sessionId) => ctx.sessionQuery.readSession(sessionId),
       readImage: (ref) => ctx.attachments.readImage(ref),
+      readLocalImage,
       renderPdf: async (html) => {
         const browserPath = await resolveBrowserPath(config.browserPath)
         return renderPdfWithBrowser({ html, browserPath, timeoutMs: config.timeoutMs })

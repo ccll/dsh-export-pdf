@@ -13,13 +13,31 @@ const SETEXT = /^ {0,3}(?:=+|-+)\s*$/
 /**
  * 把消息文本渲染成受控 HTML。解析顺序先块级后行内；代码片段先占位，
  * 避免强调/链接规则破坏代码内容。原始 HTML 不进入输出。
+ * `context.renderImage` 可为 Markdown 图片返回已转义的内联 HTML（嵌入原图），
+ * 不返回时按占位文字呈现。
  * @param {unknown} source Markdown 文本
+ * @param {{ renderImage?: (href: string, alt: string) => string | undefined }} [context] 渲染上下文
  * @returns {string}
  */
-export function renderMarkdown(source) {
+export function renderMarkdown(source, context = {}) {
   const text = String(source ?? '').replace(/\r\n?/g, '\n')
   if (text.trim() === '') return ''
-  return renderBlocks(text.split('\n'))
+  return renderBlocks(text.split('\n'), context)
+}
+
+/**
+ * 取出消息文本里 Markdown 图片的目标地址，供导出层按地址解析本地图片。
+ * 与渲染使用同一套括号配对扫描，保证地址形状一致。
+ * @param {unknown} source Markdown 文本
+ * @returns {string[]}
+ */
+export function markdownImageSources(source) {
+  const sources = []
+  replaceLinks(String(source ?? ''), (label, href, image) => {
+    if (image) sources.push(href)
+    return ''
+  })
+  return sources
 }
 
 function isBlank(line) {
@@ -44,7 +62,7 @@ function startsBlock(lines, index) {
   )
 }
 
-function renderBlocks(lines) {
+function renderBlocks(lines, context) {
   const blocks = []
   let index = 0
   while (index < lines.length) {
@@ -72,7 +90,7 @@ function renderBlocks(lines) {
     const heading = line.match(HEADING)
     if (heading) {
       const level = heading[1].length
-      blocks.push(`<h${level}>${renderInline(heading[2])}</h${level}>`)
+      blocks.push(`<h${level}>${renderInline(heading[2], context)}</h${level}>`)
       index += 1
       continue
     }
@@ -91,7 +109,7 @@ function renderBlocks(lines) {
         quote.push(match[1])
         index += 1
       }
-      blocks.push(`<blockquote class="md-quote">${renderBlocks(quote)}</blockquote>`)
+      blocks.push(`<blockquote class="md-quote">${renderBlocks(quote, context)}</blockquote>`)
       continue
     }
 
@@ -129,7 +147,7 @@ function renderBlocks(lines) {
           break
         }
       }
-      const list = items.map((item) => `<li>${renderListItem(item)}</li>`).join('')
+      const list = items.map((item) => `<li>${renderListItem(item, context)}</li>`).join('')
       blocks.push(ordered && start !== 1 ? `<ol class="md-list" start="${start}">${list}</ol>` : `<${ordered ? 'ol' : 'ul'} class="md-list">${list}</${ordered ? 'ol' : 'ul'}>`)
       continue
     }
@@ -148,9 +166,9 @@ function renderBlocks(lines) {
         rows.push(splitTableRow(lines[index]))
         index += 1
       }
-      const headerHtml = header.map((cell, column) => `<th${align[column] ? ` style="text-align:${align[column]}"` : ''}>${renderInline(cell)}</th>`).join('')
+      const headerHtml = header.map((cell, column) => `<th${align[column] ? ` style="text-align:${align[column]}"` : ''}>${renderInline(cell, context)}</th>`).join('')
       const bodyHtml = rows
-        .map((row) => `<tr>${header.map((_, column) => `<td${align[column] ? ` style="text-align:${align[column]}"` : ''}>${renderInline(row[column] ?? '')}</td>`).join('')}</tr>`)
+        .map((row) => `<tr>${header.map((_, column) => `<td${align[column] ? ` style="text-align:${align[column]}"` : ''}>${renderInline(row[column] ?? '', context)}</td>`).join('')}</tr>`)
         .join('')
       blocks.push(`<table class="md-table"><thead><tr>${headerHtml}</tr></thead>${bodyHtml === '' ? '' : `<tbody>${bodyHtml}</tbody>`}</table>`)
       continue
@@ -163,10 +181,10 @@ function renderBlocks(lines) {
     }
     if (index < lines.length && SETEXT.test(lines[index])) {
       const level = lines[index].trim().startsWith('=') ? 1 : 2
-      blocks.push(`<h${level}>${renderInline(paragraph.join('\n'))}</h${level}>`)
+      blocks.push(`<h${level}>${renderInline(paragraph.join('\n'), context)}</h${level}>`)
       index += 1
     } else {
-      blocks.push(`<p>${renderInline(paragraph.join('\n'))}</p>`)
+      blocks.push(`<p>${renderInline(paragraph.join('\n'), context)}</p>`)
     }
   }
   return blocks.join('\n')
@@ -185,16 +203,16 @@ function safeHref(raw) {
   return escapeHtml(value)
 }
 
-function renderListItem(content) {
+function renderListItem(content, context) {
   const lines = String(content).split('\n')
   const task = lines[0].match(/^\[([ xX])\]\s+(.*)$/)
   if (task !== null) {
     const rest = lines.slice(1)
     const checked = task[1].toLowerCase() === 'x'
-    return `<span class="md-check">${checked ? '☑' : '☐'}</span> ${renderInline(task[2])}${rest.length === 0 ? '' : renderBlocks(rest)}`
+    return `<span class="md-check">${checked ? '☑' : '☐'}</span> ${renderInline(task[2], context)}${rest.length === 0 ? '' : renderBlocks(rest, context)}`
   }
-  if (lines.length === 1 && !startsBlock(lines, 0)) return renderInline(lines[0])
-  return renderBlocks(lines)
+  if (lines.length === 1 && !startsBlock(lines, 0)) return renderInline(lines[0], context)
+  return renderBlocks(lines, context)
 }
 
 function replaceLinks(source, convert) {
@@ -237,7 +255,7 @@ function replaceLinks(source, convert) {
   return output
 }
 
-function renderInline(source) {
+function renderInline(source, context = {}) {
   const tokens = []
   const token = (html) => {
     const key = `\uE000MD${tokens.length}\uE001`
@@ -256,11 +274,14 @@ function renderInline(source) {
   text = replaceLinks(text, (label, href, image) => {
     if (image) {
       const alt = String(label).trim()
+      // 嵌入由导出层决定：能解析出内联图片时用它，否则按占位文字呈现。
+      const embedded = context.renderImage?.(href, alt)
+      if (typeof embedded === 'string' && embedded !== '') return token(embedded)
       return token(`<span class="md-image">[图片${alt === '' ? '' : `: ${escapeHtml(alt)}`}]</span>`)
     }
     const safe = safeHref(href)
-    if (safe === undefined) return token(renderInline(label))
-    return token(`<a href="${safe}" rel="noreferrer">${renderInline(label)}</a>`)
+    if (safe === undefined) return token(renderInline(label, context))
+    return token(`<a href="${safe}" rel="noreferrer">${renderInline(label, context)}</a>`)
   })
 
   text = escapeHtml(text)

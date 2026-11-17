@@ -1,4 +1,4 @@
-// 测试锚点: R-01-003/AC-02 R-01-006/AC-01 R-01-006/AC-04 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-04 R-01-011/AC-05 R-01-012/AC-03 R-01-012/AC-05
+// 测试锚点: R-01-003/AC-02 R-01-006/AC-01 R-01-006/AC-04 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-04 R-01-011/AC-05 R-01-012/AC-03 R-01-012/AC-05 R-01-012/AC-07
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createExporter } from '../src/exporter.mjs'
@@ -33,6 +33,7 @@ function makeExporter({
   events = [userEvent(1)],
   readSession,
   readImage,
+  readLocalImage,
   renderPdf = async () => PDF,
   hasCjkFont = async () => true,
   loadPageStyle = () => ({ text: 'body {}', version: 'v1' }),
@@ -43,6 +44,7 @@ function makeExporter({
   return createExporter({
     readSession: readSession ?? (async () => snapshot(events)),
     readImage,
+    readLocalImage,
     renderPdf,
     hasCjkFont,
     loadPageStyle,
@@ -446,4 +448,67 @@ test('纯图片消息在 none 模式折叠为空，不启动渲染', async () =>
   })
   assert.deepEqual(await exporter.exportSession('s', [], 'none'), { kind: 'empty' })
   assert.equal(renders, 0)
+})
+
+const MARKDOWN_IMAGE = '改前对照：\n\n![改前第 1 页](/tmp/dsh-shot/before-1.png)'
+/** 完整 PNG 签名：本地图片按字节嗅探媒体类型，4 字节前缀不足以判定。 */
+const LOCAL_IMAGE_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const markdownImageEvent = (seq, text = MARKDOWN_IMAGE) => ({
+  type: 'assistant/message',
+  seq,
+  time: seq,
+  data: { message: { role: 'assistant', content: [{ type: 'text', text }] } },
+})
+
+test('嵌入原图同时嵌入 Markdown 本地图片，占位模式不读取', async () => {
+  const htmls = []
+  const reads = []
+  const exporter = makeExporter({
+    events: [userEvent(1, '标题'), markdownImageEvent(2)],
+    readLocalImage: async (path, options) => {
+      reads.push({ path, options })
+      return LOCAL_IMAGE_BYTES
+    },
+    renderPdf: async (html) => {
+      htmls.push(html)
+      return PDF
+    },
+  })
+
+  const embed = await exporter.exportSession('s', [], 'embed')
+  assert.equal(embed.kind, 'pdf')
+  assert.deepEqual(reads.map((read) => read.path), ['/tmp/dsh-shot/before-1.png'])
+  assert.match(htmls[0], /<img src="data:image\/png;base64,/)
+  assert.ok(!htmls[0].includes('[图片: 改前第 1 页]'))
+
+  const placeholder = await exporter.exportSession('s')
+  assert.equal(placeholder.kind, 'pdf')
+  assert.equal(reads.length, 1, '占位模式不读取本地图片')
+  assert.ok(htmls[1].includes('[图片: 改前第 1 页]'))
+})
+
+test('Markdown 本地图片读取失败回退占位文字，相对路径按会话工作区解析', async () => {
+  const htmls = []
+  const reads = []
+  const logs = []
+  const events = [userEvent(1, '标题'), markdownImageEvent(2, '![缺失](missing.png) ![远程](https://evil.invalid/a.png)')]
+  const exporter = makeExporter({
+    readSession: async () => snapshot(events, { cwd: '/home/cailei/work' }),
+    readLocalImage: async (path, options) => {
+      reads.push({ path, options })
+      throw new Error('ENOENT')
+    },
+    renderPdf: async (html) => {
+      htmls.push(html)
+      return PDF
+    },
+    logError: (message) => logs.push(message),
+  })
+
+  assert.equal((await exporter.exportSession('s', [], 'embed')).kind, 'pdf')
+  assert.deepEqual(reads, [{ path: 'missing.png', options: { cwd: '/home/cailei/work' } }], '相对路径带会话工作区，远程地址不读取')
+  assert.ok(htmls[0].includes('[图片: 缺失]'))
+  assert.ok(htmls[0].includes('[图片: 远程]'))
+  assert.ok(!htmls[0].includes('data:image'))
+  assert.ok(logs.some((message) => message.includes('本地图片')), '失败写入日志')
 })

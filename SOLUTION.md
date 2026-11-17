@@ -11,7 +11,7 @@ owner: agent 主笔，项目属主审批
 
 | 视图 | 适用性/理由 | 图表位置 |
 |---|---|---|
-| 系统上下文 | 适用：插件位于 DSH 宿主内，外部只有会话日志、会话查询服务与本机浏览器。 | 系统上下文图 |
+| 系统上下文 | 适用：插件位于 DSH 宿主内，外部只有会话日志、会话查询服务、宿主文件服务与本机浏览器。 | 系统上下文图 |
 | 一级静态分解 | 适用：宿主半区与浏览器半区通过一条精确路由相连，是全部实现的骨架。 | 一级静态分解图 |
 | 内部组件分解 | 不适用：一级分解已把五个组件展开到可实现的粒度，再拆一层只是重复。 | — |
 | 运行时交互 | 适用：首次选中、缓存命中、渲染失败、下载四条路径的行为不同，需要图固定。 | 运行时交互图 |
@@ -43,7 +43,7 @@ owner: agent 主笔，项目属主审批
 |---|---|---|
 | 边界与契约已明确 | 通过 | SOLUTION.md#产品契约 |
 | 关键不变量已明确 | 通过 | SOLUTION.md#核心数据与不变量 |
-| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md, RATIONALE/C-006-image-modes.md, RATIONALE/C-007-mobile-pdf-open.md, RATIONALE/C-008-markdown-rendering.md |
+| 重大方案选择已收敛 | 通过 | RATIONALE/C-001-chromium-print-html.md, RATIONALE/C-003-empty-state-host-hidden.md, RATIONALE/C-004-session-ownership-at-host-auth.md, RATIONALE/C-005-default-minimal-export.md, RATIONALE/C-006-image-modes.md, RATIONALE/C-007-mobile-pdf-open.md, RATIONALE/C-008-markdown-rendering.md, RATIONALE/C-010-markdown-local-images.md |
 | 目标实现归属已明确 | 通过 | SOLUTION.md#子系统与模块 |
 | 现状差距已有 task 承接 | 通过 | T-001～T-010 已交付既有需求（completed）；无未承接差距 |
 | 可派生验证 | 通过 | SOLUTION.md#产品契约 |
@@ -58,10 +58,12 @@ flowchart LR
   gui --> plugin[会话导出]
   plugin -->|readSession| query[会话查询服务]
   query --> log[(会话日志)]
+  plugin -->|readLocalImage| files[宿主文件服务]
+  files --> image[(本地图片文件)]
   plugin -->|spawn| browser[本机浏览器]
 ```
 
-会话日志是唯一的导出数据源。会话查询服务负责读取与校验日志，插件不直接触碰磁盘上的日志文件。本机浏览器只负责把 HTML 打印成 PDF，不读取任何会话数据。
+会话日志是唯一的导出数据源。会话查询服务负责读取与校验日志，插件不直接触碰磁盘上的日志文件。宿主文件服务只在嵌入原图时读取消息正文引用的本地图片，读取受宿主的权限与沙箱策略约束。本机浏览器只负责把 HTML 打印成 PDF，不读取任何会话数据。
 
 ### 一级静态分解图
 
@@ -100,6 +102,7 @@ sequenceDiagram
   participant R as 导出路由
   participant S as 导出服务
   participant A as 附件服务
+  participant F as 宿主文件服务
   participant B as 浏览器子进程
   U->>V: 选中 PDF 页
   V->>R: HEAD /api/session.pdf?sessionId
@@ -112,6 +115,9 @@ sequenceDiagram
       S->>A: readImage(附件引用)
       A-->>S: 校验后的图片字节或失败
       S->>S: 失败图片回退为 [图片]
+      S->>F: readBytes(本地图片路径)
+      F-->>S: 图片字节、拒绝或超限
+      S->>S: 失败图片回退为 [图片: alt]
     end
     S->>B: 打印 HTML 为 PDF
     alt 打印成功
@@ -152,7 +158,7 @@ classDiagram
   导出结果 "1" --> "0..*" 转录条目 : 渲染自
 ```
 
-转录条目的类型只有三种：用户消息、助手回复、工具调用。思考块在折叠阶段丢弃，不进入 PDF；工具调用仅在导出选择包含 `tools` 时进入条目列表。消息条目保留文本与图片分段，图片模式为嵌入时图片分段保存附件引用，渲染前再解析为内联图片。
+转录条目的类型只有三种：用户消息、助手回复、工具调用。思考块在折叠阶段丢弃，不进入 PDF；工具调用仅在导出选择包含 `tools` 时进入条目列表。消息条目保留文本与图片分段，图片模式为嵌入时图片分段保存附件引用，渲染前再解析为内联图片。消息正文里的 Markdown 图片按地址另建内联图片索引，解析不到的地址保留 `[图片: alt]` 文字。
 
 ### 状态与生命周期图
 
@@ -177,6 +183,7 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
   log[(会话日志)] --> fold[转录折叠]
+  files[(本地图片文件)] -->|宿主文件服务| html
   fold --> html[HTML 文档]
   html --> child[浏览器子进程]
   child --> pdf[PDF 字节]
@@ -184,7 +191,7 @@ flowchart LR
   cache -->|鉴权通过的 GET| ui[PDF 视图页]
 ```
 
-信任边界在导出路由上。宿主浏览器鉴权与同源检查由 Connection 的 `/api` 桥完成，插件在边界内再校验会话标识。
+信任边界在导出路由上。宿主浏览器鉴权与同源检查由 Connection 的 `/api` 桥完成，插件在边界内再校验会话标识。本地图片文件在边界内由宿主文件服务读取，字节只以 data URI 进入 HTML，不经过浏览器半区。
 
 ## 产品契约
 
@@ -196,7 +203,7 @@ flowchart LR
 | 参数 `sessionId` | 必填，会话标识；只接受 ASCII 字母、数字与 `.`、`_`、`:`、`-`，长度不超过 200 |
 | 参数 `disposition` | 可选，`inline` 或 `attachment`，缺省 `inline` |
 | 参数 `include` | 可选，逗号分隔的 `tools`、`attachments`；`attachments` 只控制文件附件占位；缺省或空串表示不加入工具与文件，只保留消息文本与缺省图片占位；顺序归一，重复或未知值 `400` |
-| 参数 `image` | 可选，`placeholder`、`embed` 或 `none`；缺省或空串为 `placeholder`；未知值 `400` |
+| 参数 `image` | 可选，`placeholder`、`embed` 或 `none`；缺省或空串为 `placeholder`；`embed` 同时嵌入上传图片与消息正文里的本地图片；未知值 `400` |
 | 预览承载 | 桌面视口用同源 PDF iframe；视口宽度 ≤720px 时不渲染 iframe，改为在新标签页打开同一份 PDF，由系统查看器浏览全部页面 |
 | 成功响应 | `200`，`Content-Type: application/pdf`，`Content-Disposition` 取 `disposition` 与带选择后缀的文件名 |
 | 参数缺失或非法 | `400`，纯文本说明 |
@@ -217,9 +224,13 @@ flowchart LR
 - 折叠三类条目：用户消息、助手回复、工具调用；思考块在折叠阶段丢弃。
 - 导出选择是内容组成：`tools` 加入工具调用，`attachments` 加入文件附件占位；图片由独立的图片模式控制，缺省 `placeholder`。
 - 图片模式 `placeholder` 把图片块降为 `[图片]`，纯图片消息保留；`embed` 保留图片引用并在渲染前嵌入原图，读取失败回退 `[图片]`；`none` 省略图片块与纯图片消息。
+- Markdown 图片在 `embed` 模式下按本地路径嵌入，其余模式与读取失败时呈现 `[图片: alt]`；`none` 只省略图片块，不删除 Markdown 图片的占位文字。
 - 文件块只在 `attachments` 选中时产生 `[附件: 文件名]`；文件本体从不嵌入 PDF，纯文件消息未选文件附件时不进入条目列表。
-- 图片嵌入只读取消息附件引用经 `ctx.attachments.readImage` 校验的字节，不读取宿主路径、不按外部 URL 抓取；渲染时缩放到版心内，单图不越出页面边界。
-- 用户与助手正文先按 Markdown 渲染成受控 HTML：块级标题/列表/引用/围栏代码/表格/分隔线，行内加粗/斜体/删除线/行内代码/链接与图片占位；原始 HTML 只按文本转义，链接只允许 http、https、mailto，Markdown 图片不抓取 URL，只显示 `[图片: alt]` 占位。
+- 附件图片只读取消息附件引用经 `ctx.attachments.readImage` 校验的字节，不按外部 URL 抓取。
+- 本地图片经宿主文件服务 `ctx.fs` 解析路径并读取，权限与沙箱策略和聊天界面显示本地图片同源；只接受常见图片扩展名且字节嗅探为真图片，读取上限取 `ctx.attachments.imageLimits.maxImageBytes`。
+- 嵌入图片统一缩放到版心内：宽度不超过消息气泡，最高 220mm，不越出页面边界。
+- 用户与助手正文先按 Markdown 渲染成受控 HTML：块级标题/列表/引用/围栏代码/表格/分隔线，行内加粗/斜体/删除线/行内代码/链接与图片；原始 HTML 只按文本转义，链接只允许 http、https、mailto。
+- Markdown 图片在嵌入模式下替换为内联 `<img>`；占位、不导出与读取失败时显示 `[图片: alt]`，http、https 地址始终不抓取。
 - 窄视口（≤720px）不渲染页内 PDF iframe；显示同源“打开完整 PDF”链接，在新标签页用系统查看器浏览全部页面。桌面视口保留页内原生 PDF 预览。两种入口共用同一缓存结果、文件名与选择。
 - 用户消息只取 `source.kind` 为 `user` 的真人输入；运行上下文、技能目录、时间提示等内部注入不进入 PDF，否则导出会夹带整份 Agent 指令。旧格式日志没有 `source` 字段时按真人输入处理，避免历史会话导出为空。
 - 折叠后没有任何条目时按“当前选择下无可导出内容”处理，以 `204` 结束。
@@ -247,7 +258,7 @@ flowchart LR
 - 浏览器可执行文件缺失时立即以 `503` 结束，不启动子进程。
 - 宿主缺少可用的中文字体时立即以 `503` 结束，并说明缺少中文字体。
 - 折叠结果为空（包括图片模式为 `none` 且只剩图片消息，或只选了 `tools` 但会话没有工具调用）时以 `204` 结束，不启动浏览器，也不写临时文件。
-- 图片模式为 `embed` 时，单张图片读取失败、字节校验失败或格式不受支持均记录日志并回退为 `[图片]`，不因单图失败中断整份导出。
+- 图片模式为 `embed` 时，单张图片读取失败、字节校验失败或格式不受支持均记录日志并回退占位；附件回退 `[图片]`，Markdown 图片回退 `[图片: alt]`，不因单图失败中断整份导出。
 - 子会话标识在读取日志后、渲染前被拒绝，以 `400` 结束；不折叠、不打印、不缓存，也不启动浏览器。
 - 子进程以非零码退出时取其标准错误的前若干行作为失败说明，写入宿主日志，响应只给简要原因。
 - 临时 HTML 与 PDF 文件写在系统临时目录，用尽即删，异常路径同样删除。
@@ -259,6 +270,7 @@ flowchart LR
 
 - 会话查询服务：经 `ctx.sessionQuery` 读取会话日志，会话不存在时抛 `SESSION_QUERY_SESSION_NOT_FOUND`。
 - 附件服务：经 `ctx.attachments.readImage(ref)` 读取并校验本会话消息引用的图片字节；只接受日志中的附件引用，不按外部 URL 抓取。
+- 宿主文件服务：经 `ctx.fs` 的 `resolve`、`stat`、`readBytes` 读取消息正文引用的本地图片；服务缺失时本地图片退回占位，不阻止导出。
 - 本机浏览器：按配置路径或 PATH 探测名称列表，启动无头模式打印 HTML。
 - 本机字体：探测中文字体是否可用，缺失时拒绝导出而不是输出缺字 PDF。Linux 先执行 `fc-list :lang=zh`，没有 fontconfig 时扫描系统字体目录；探测结果缓存在宿主进程内。
 - 宿主的连接服务：经 `ctx.connection.fetch.register` 注册精确路由，鉴权由该桥提供。
@@ -281,6 +293,7 @@ flowchart LR
 - 响应不设置 `Access-Control-Allow-Origin`，跨源读取不可用。
 - 浏览器子进程只接收插件生成的 HTML，不接触凭据与用户环境变量。
 - 错误响应只给简要原因，不回显日志内容或文件路径。
+- 本地图片读取只发生在导出边界内：路径来自会话消息正文，经宿主文件服务的沙箱与权限策略解析；只读、只接受图片扩展名与图片字节、受大小上限约束，不写回文件。
 
 ## 兼容性与版本演进
 
@@ -304,9 +317,9 @@ flowchart LR
 | R-01-009 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.mjs |
 | R-01-010 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/render.mjs |
 | R-01-011 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/selection.mjs, src/transcript.mjs, src/exporter.mjs, src/route.mjs, src/naming.mjs, src/view.mjs, src/view-state.mjs |
-| R-01-012 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/selection.mjs, src/images.mjs, src/transcript.mjs, src/render.mjs, src/exporter.mjs, src/route.mjs, src/naming.mjs, src/host.mjs, src/view.mjs, src/view-state.mjs |
+| R-01-012 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/selection.mjs, src/images.mjs, src/markdown.mjs, src/transcript.mjs, src/render.mjs, src/exporter.mjs, src/route.mjs, src/naming.mjs, src/host.mjs, src/view.mjs, src/view-state.mjs |
 | R-01-013 | 会话导出 | SOLUTION.md#产品契约 | src/view.mjs, src/view-state.mjs |
-| R-01-014 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/markdown.mjs, src/html.mjs, src/render.mjs |
+| R-01-014 | 会话导出 | SOLUTION.md#核心数据与不变量 | src/markdown.mjs, src/html.mjs, src/render.mjs, src/images.mjs |
 
 ## 子系统与模块
 
@@ -315,7 +328,8 @@ flowchart LR
 - 关键内部结构:
   - 宿主半区注册一条精确路由，承担参数校验、渲染编排、缓存与响应。
   - 浏览器半区注册一个 `conversation.view` 条目，承担预览、内容选择与下载交互；选择变化会取消旧请求并按新选择重取。
-  - 转录折叠与 HTML 渲染是纯函数；图片解析经过附件服务，负责把引用转成内联字节并对失败回退占位。
+  - 转录折叠与 HTML 渲染是纯函数；图片解析经过附件服务与宿主文件服务，负责把附件引用和本地路径转成内联字节并对失败回退占位。
+  - 宿主装配把 `ctx.fs` 包成本地图片读取函数注入导出编排器；该服务缺失时只影响 Markdown 本地图片嵌入，导出照常进行。
   - 浏览器进程按需启动，一次渲染一个进程，结束即回收。
   - 渲染管线由 `pipeline.mjs` 按内容哈希加载，页面样式由 `page-style.mjs` 按内容读取；这两处改动在导出时生效，不需要重启宿主（C-009）。
   - 宿主装配、路由与配置在启动时固定，改动它们仍需重启宿主。
@@ -338,6 +352,7 @@ flowchart LR
 - 不使用模板引擎，HTML 由字符串拼接与转义函数产出。
 - 渲染层热加载：按内容哈希重载模块，页面样式抽成 CSS 数据文件；不引入子进程渲染或打包器，被否方案与理由见 RATIONALE/C-009-hot-reload-render-pipeline.md。
 - Markdown 由无依赖的安全子集转换（C-008），不引入 `marked` 等运行时依赖；原始 HTML、危险协议链接与外部 Markdown 图片都不进入渲染输出。
+- Markdown 本地图片经宿主文件服务读取并内联为 data URI，不新增外部图片代理或缓存；选型与被否方案见 RATIONALE/C-010-markdown-local-images.md。
 - 实测样本（2026-11-16，Chrome 156）：44 个回合块加表格与代码块输出 6 页 A4、241 KB；文本层可抽取全部中文；单次打印 1.45 秒、峰值内存 236 MB。
 - 中文字体以 Type 3 形式嵌入，文本仍可选择与搜索；若换成 TTF 轮廓字体，Chrome 通常嵌入为 CID TrueType。
 - 页脚不显示页码，理由与被否方案见 RATIONALE/C-002-no-page-numbers.md。

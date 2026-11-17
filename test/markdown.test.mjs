@@ -1,7 +1,7 @@
 // 测试锚点: R-01-014/AC-01 R-01-014/AC-02 R-01-014/AC-03 R-01-014/AC-04 R-01-014/AC-05 R-01-014/AC-06
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { renderMarkdown } from '../src/markdown.mjs'
+import { markdownImageSources, renderMarkdown } from '../src/markdown.mjs'
 
 test('块级 Markdown 渲染标题、列表、引用、代码、表格与分隔线', () => {
   const html = renderMarkdown(`# 一级标题
@@ -77,6 +77,23 @@ test('Markdown 图片不抓取地址，只显示占位文字', () => {
   assert.match(html, /<span class="md-image">\[图片: 截图\]<\/span>/)
   assert.ok(!html.includes('<img'))
   assert.ok(!html.includes('evil.invalid'))
+})
+
+test('Markdown 图片在渲染上下文给出内联图片时替换占位', () => {
+  const embedded = '<span class="md-inline-image"><img src="data:image/png;base64,AAAA" alt="截图"></span>'
+  const html = renderMarkdown('看图 ![截图](/tmp/a.png) 结束', { renderImage: (href, alt) => (alt === '截图' ? embedded : undefined) })
+  assert.ok(html.includes(embedded))
+  assert.ok(!html.includes('[图片: 截图]'))
+  const fallback = renderMarkdown('看图 ![截图](/tmp/a.png)', { renderImage: () => undefined })
+  assert.match(fallback, /<span class="md-image">\[图片: 截图\]<\/span>/)
+})
+
+test('Markdown 图片地址按括号配对扫描取出，标题与远程地址不丢', () => {
+  assert.deepEqual(markdownImageSources('前 ![图一](/tmp/a.png "标题") 后 ![二](https://example.com/b%20c.png)'), [
+    '/tmp/a.png',
+    'https://example.com/b%20c.png',
+  ])
+  assert.deepEqual(markdownImageSources('[链接](https://example.com) 不是图片'), [])
 })
 
 test('无 Markdown 标记时保留原文与换行', () => {

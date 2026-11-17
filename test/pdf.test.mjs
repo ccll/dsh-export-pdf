@@ -1,7 +1,7 @@
-// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03 R-01-012/AC-02 R-01-012/AC-03 R-01-012/AC-06 R-01-014/AC-01 R-01-014/AC-02 R-01-014/AC-03 R-01-014/AC-04 R-01-014/AC-05
+// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03 R-01-012/AC-02 R-01-012/AC-03 R-01-012/AC-06 R-01-012/AC-07 R-01-014/AC-01 R-01-014/AC-02 R-01-014/AC-03 R-01-014/AC-04 R-01-014/AC-05
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -294,6 +294,75 @@ test('真实浏览器打印：图片占位/嵌入原图/不导出', { timeout: 1
         assert.ok(displayWidth <= 505, `${mode} 图片宽度不得越出 A4 版心，实际 ${displayWidth.toFixed(1)}pt`)
       }
     }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('真实浏览器打印：注入的 Markdown 本地图片进入 PDF，缺图回退占位文字', { timeout: 120_000 }, async (context) => {
+  const browserPath = await resolveBrowserPath('').catch(() => undefined)
+  const skip = (reason) => {
+    if (process.env.CI) assert.fail(reason)
+    context.skip(reason)
+  }
+  if (browserPath === undefined) {
+    skip('宿主没有可用的 Chrome/Chromium')
+    return
+  }
+  if (!(await detectCjkFont())) {
+    skip('宿主没有可用的中文字体')
+    return
+  }
+  if (!hasCommand('pdftotext') || !hasCommand('pdfimages')) {
+    skip('宿主缺少 pdftotext/pdfimages')
+    return
+  }
+
+  // 1x1 PNG：足够让 Chrome 打印出位图对象，用来区分“嵌入”与“占位文字”。
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-pdf-local-image-'))
+  const imagePath = join(directory, 'before-1.png')
+  await writeFile(imagePath, png)
+  const eventsFor = (path) => [
+    {
+      type: 'assistant/message',
+      seq: 1,
+      time: 1,
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: `改前对照：\n\n![改前第 1 页](${path})` }] } },
+    },
+  ]
+  const exporterFor = (path) =>
+    createExporter({
+      readSession: async () => ({ session: { id: 's', origin: 'main', delegationDepth: 0, cwd: directory }, events: eventsFor(path) }),
+      readLocalImage: async (localPath) => new Uint8Array(await readFile(localPath)),
+      hasCjkFont: async () => true,
+      loadPageStyle: () => ({ text: PAGE_STYLE, version: 'test' }),
+      renderPdf: (html) => renderPdfWithBrowser({ html, browserPath, timeoutMs: 60_000 }),
+      logError: () => {},
+    })
+  try {
+    const embedded = await exporterFor(imagePath).exportSession('s', [], 'embed')
+    assert.equal(embedded.kind, 'pdf')
+    const embeddedPath = join(directory, 'embedded.pdf')
+    await writeFile(embeddedPath, embedded.bytes)
+    const embeddedText = execFileSync('pdftotext', [embeddedPath, '-'], { encoding: 'utf8' })
+    const embeddedImages = execFileSync('pdfimages', ['-list', embeddedPath], { encoding: 'utf8' })
+      .split('\n')
+      .filter((line) => /^\s*\d+\s+\d+\s+image\b/.test(line))
+    assert.equal(embeddedImages.length > 0, true, '本地图片以位图进入 PDF')
+    assert.ok(!embeddedText.includes('[图片: 改前第 1 页]'), '嵌入后不再出现占位文字')
+
+    await rm(imagePath, { force: true })
+    const fallback = await exporterFor(imagePath).exportSession('s', [], 'embed')
+    assert.equal(fallback.kind, 'pdf')
+    const fallbackPath = join(directory, 'fallback.pdf')
+    await writeFile(fallbackPath, fallback.bytes)
+    const fallbackText = execFileSync('pdftotext', [fallbackPath, '-'], { encoding: 'utf8' })
+    const fallbackImages = execFileSync('pdfimages', ['-list', fallbackPath], { encoding: 'utf8' })
+      .split('\n')
+      .filter((line) => /^\s*\d+\s+\d+\s+image\b/.test(line))
+    assert.equal(fallbackImages.length, 0, '缺图不产生位图')
+    assert.ok(fallbackText.includes('[图片: 改前第 1 页]'), '缺图回退占位文字')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

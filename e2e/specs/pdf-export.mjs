@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { request as playwrightRequest } from 'playwright-core'
@@ -17,6 +17,8 @@ import { clickPdfTab, expectedPdfPrefix, newestSessionLog, openApp, sendHeroMess
 // 一次真实会话的 PDF 页：页签、生成中、预览、下载、A4/中文、只读、
 // 无凭据拒绝与同源栅栏。
 const PAGINATION_MARKER = '末段标记Z'
+/** 1x1 PNG：作为用户消息里 Markdown 引用的本地图片，验证嵌入与占位两条路径。 */
+const PROBE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 const USER_TEXT = `e2e:pdf 中文导出探针 ${'中文分页探针，用于验证页内预览与下载覆盖全部页面。'.repeat(120)} ${PAGINATION_MARKER}`
 const ASSISTANT_TEXT = '导出探针回复：中文可读，包含标点与 12345。'
 const FOREIGN_ORIGIN = 'http://evil.invalid'
@@ -38,6 +40,12 @@ function pdfText(path) {
   return execFileSync('pdftotext', [path, '-'], { encoding: 'utf8' })
 }
 
+function pdfImageCount(path) {
+  return execFileSync('pdfimages', ['-list', path], { encoding: 'utf8' })
+    .split('\n')
+    .filter((line) => /^\s*\d+\s+\d+\s+image\b/.test(line)).length
+}
+
 export default async function pdfExport({ page, url, home, assert: specAssert }) {
   const assertEqual = specAssert?.equal ?? assert.equal
   const assertOk = specAssert?.ok ?? assert.ok
@@ -54,7 +62,10 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
   })
 
   await openApp(page, url)
-  await sendHeroMessage(page, USER_TEXT)
+  // R-01-012/AC-03、AC-07：用户消息里 Markdown 引用的本地图片，经宿主文件服务读取。
+  const probeImagePath = join(home, 'workspace', 'e2e-embed-probe.png')
+  await writeFile(probeImagePath, PROBE_PNG)
+  await sendHeroMessage(page, `${USER_TEXT}\n\n![嵌入探针图](<${probeImagePath}>)`)
   await until('助手回复出现', async () => visibleText(page, ASSISTANT_TEXT), 30_000)
 
   // 等宿主自身（标题生成等）把日志写完，再取稳定哈希；导出前后必须一致。
@@ -238,6 +249,14 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
       const previewBytes = await (await page.request.get(selectedSource)).body()
       const downloadBytes = await readFile(selectedPath)
       assertEqual(Buffer.compare(previewBytes, downloadBytes), 0, `${value} 预览与下载同字节`)
+      const imageCount = pdfImageCount(selectedPath)
+      if (value === 'embed') {
+        assertOk(imageCount > 0, `嵌入模式应把本地图片打印为位图，实际 ${imageCount}`)
+        assertOk(!pdfText(selectedPath).includes('[图片: 嵌入探针图]'), '嵌入模式不再显示 Markdown 图片占位')
+      } else {
+        assertEqual(imageCount, 0, `${value} 模式不得嵌入位图`)
+        assertOk(pdfText(selectedPath).includes('[图片: 嵌入探针图]'), `${value} 模式保留 Markdown 图片占位文字`)
+      }
     } finally {
       await rm(selectedDirectory, { recursive: true, force: true })
     }

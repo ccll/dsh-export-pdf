@@ -41,6 +41,8 @@ main { display: block; }
 .md pre.md-code { background: #f3f3f3; border: 0.25mm solid #dddddd; border-radius: 1mm; box-sizing: border-box; margin: 1.2mm 0; overflow-wrap: anywhere; padding: 1.8mm 2.4mm; white-space: pre-wrap; }
 .md pre.md-code code { background: transparent; font-size: 9pt; line-height: 1.45; padding: 0; white-space: inherit; }
 .md .md-image { color: #6b6b6b; }
+.md .md-inline-image { display: block; margin: 1.5mm 0; page-break-inside: avoid; }
+.md .md-inline-image img { border: 0.3mm solid #d8d8d8; display: block; height: auto; max-height: 220mm; max-width: 100%; object-fit: contain; }
 .md table { border-collapse: collapse; font-size: 9.5pt; margin: 1.2mm 0; table-layout: fixed; width: 100%; }
 .md th, .md td { border: 0.25mm solid #d0d0d0; overflow-wrap: anywhere; padding: 0.8mm 1.2mm; vertical-align: top; }
 .md th { background: #f3f3f3; font-weight: 600; }
