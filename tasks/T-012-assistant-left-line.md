@@ -6,7 +6,7 @@ id: T-012
 
 # T-012 去掉助手回复左侧的整体竖线
 
-状态: active
+状态: completed
 类型: UI/UX 改进
 风险等级: minor
 风险面: 无（仅 PDF 版式呈现，不改接口、内容与文件名）
@@ -37,3 +37,9 @@ id: T-012
 - 目视: 用带标题、列表、引用、代码块与表格的样例渲染 PDF 并转 PNG，确认助手正文左侧没有长竖线、引用块竖线仍在。
 
 ## 终态与证据
+
+- 实现: `src/render.mjs` 删除 PAGE_STYLE 中 `.entry.assistant .body` 的 `border-left: 1.5pt` 与 `padding-left: 3.5mm`，助手正文左缘与角色图标对齐；`.md blockquote` 的引用竖线、用户气泡与右对齐不变。实现提交 ec4b375。
+- 测试: `pnpm verify` 通过（build:client、check、`node --test` 80 通过、e2e pdf-export 与 pdf-failure 均 PASS）；`agentmap_lint --report` 通过。真实 Chrome 打印后 `pdftotext -bbox`：助手首词 xMin 45.00（版心左缘 45.35，容差 1.5）；把规则临时加回时测得 56.41，两条新断言均按预期失败。样例 PDF（标题/列表/引用/代码块/表格）转 PNG 目视：`/tmp/dsh-sample/before-1.png`（改前，整条消息带左侧长竖线）与 `/tmp/dsh-sample/final-1.png`（改后，外层竖线消失、引用块竖线仍在）。
+- SOLUTION 对照: R-01-009 只承诺用户右对齐、助手左对齐与版心内换行，未承诺助手正文的左侧细线；对齐、82% 版心宽度与跨页续排不变，SOLUTION、README 与 PRD 无需改动。
+- commit: ec4b375
+- review: 独立只读评审（openai/gpt-5.6-luna 子代理，独立上下文）｜目的理解：确认 ec4b375 只移除助手正文外层左竖线，保留 Markdown 引用块竖线、用户右对齐、82% 版心与跨页续排｜结论：通过，blocking 0；3 条 non-blocking——CSS 断言只证明样式串不证明渲染结果、bbox 45.35pt 阈值对字体与 Chrome 版本敏感、目视证据未随附（已补进上面 测试 行）。
