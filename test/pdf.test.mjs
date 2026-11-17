@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03 R-01-012/AC-02 R-01-012/AC-03 R-01-012/AC-06 R-01-014/AC-01 R-01-014/AC-02 R-01-014/AC-03
+// 测试锚点: R-01-005/AC-01 R-01-005/AC-02 R-01-005/AC-03 R-01-009/AC-01 R-01-009/AC-02 R-01-009/AC-03 R-01-011/AC-01 R-01-011/AC-02 R-01-011/AC-03 R-01-012/AC-02 R-01-012/AC-03 R-01-012/AC-06 R-01-014/AC-01 R-01-014/AC-02 R-01-014/AC-03 R-01-014/AC-04 R-01-014/AC-05
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -322,11 +322,14 @@ test('真实浏览器打印：Markdown 版式进入 PDF 且不保留原始标记
     '| --- | --- |',
     '| A | 1 |',
     '',
-    '普通段落带 [链接](https://example.com)。',
+    '普通段落带 [链接](https://example.com)、[危险](javascript:alert(1)) 与 ![图](https://evil.invalid/a.png)。',
   ].join('\n')
   const html = renderTranscriptHtml([{ kind: 'user', text: markdown }])
   assert.ok(html.includes('<h1>Markdown 标题</h1>'))
   assert.ok(!html.includes('# Markdown 标题'))
+  assert.ok(!html.includes('javascript:'))
+  assert.ok(!html.includes('evil.invalid'))
+  assert.ok(!html.includes('<img'))
   const bytes = await renderPdfWithBrowser({ html, browserPath, timeoutMs: 60_000 })
   const directory = await mkdtemp(join(tmpdir(), 'dsh-pdf-markdown-'))
   try {
@@ -341,6 +344,8 @@ test('真实浏览器打印：Markdown 版式进入 PDF 且不保留原始标记
     assert.ok(!text.includes('# Markdown 标题'), 'PDF 文本层不保留标题井号')
     assert.ok(!text.includes('**第二项**'), 'PDF 文本层不保留加粗标记')
     assert.ok(!text.includes('```'), 'PDF 文本层不保留围栏标记')
+    assert.ok(!text.includes('javascript:'), 'PDF 文本层不保留危险协议')
+    assert.ok(!text.includes('evil.invalid'), 'PDF 文本层不抓取 Markdown 图片地址')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

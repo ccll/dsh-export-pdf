@@ -38,7 +38,7 @@ main { display: block; }
 .body { margin: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
 .body > .md > :first-child { margin-top: 0; }
 .body > .md > :last-child { margin-bottom: 0; }
-.md p { margin: 0 0 1.4mm; }
+.md p { margin: 0 0 1.4mm; white-space: pre-wrap; }
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { break-after: avoid; line-height: 1.35; margin: 2.2mm 0 1.2mm; }
 .md h1 { font-size: 15pt; }
 .md h2 { font-size: 13.5pt; }
@@ -88,7 +88,7 @@ function renderBody(entry) {
   return parts
     .map((part) => {
       if (part?.type !== 'image') {
-        const text = typeof part?.text === 'string' ? part.text : ''
+        const text = String(part?.text ?? '')
         return text === '' ? '' : `<div class="md">${renderMarkdown(text)}</div>`
       }
       // dataUrl 只由导出器的附件解析器生成；非 data:image 值一律回退占位，避免注入。

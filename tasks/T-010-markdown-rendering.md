@@ -28,6 +28,7 @@ id: T-010
 
 - 块级: 标题、无序/有序列表、引用、围栏代码（含语言标记但不高亮）、GFM 表格、分隔线、段落；未识别的标记按普通文本。
 - 行内: 加粗、斜体、删除线、行内代码、链接、Markdown 图片占位；代码片段先占位，避免强调解析破坏代码。
+- 扩展: 嵌套列表、任务清单、Setext 标题、尖括号自动链接与反斜杠转义按 Markdown 语义处理；复杂 GFM（脚注、嵌套引用等）不在子集内。
 - 安全: 所有文本先转义；链接仅允许 `http:`、`https:`、`mailto:`，其余只显示文字；原始 HTML 按文本转义；Markdown 图片不读取 URL，只显示 `[图片: alt]`。
 - 渲染: `renderBody` 对文本分段调用 Markdown 渲染，图片分段仍走 data URI；`.body` 改为正常 HTML 流，工具摘要保留 `pre-wrap`。
 - 样式: 标题、列表、引用、代码块、表格、链接、分隔线在 A4 版心内可读；代码块允许跨页，避免整块强制上移。
@@ -47,7 +48,7 @@ id: T-010
 | 成功 | 适用：块级与行内 Markdown 进入 PDF | `test/markdown.test.mjs::R-01-014/AC-01`、`test/markdown.test.mjs::R-01-014/AC-02` |
 | 异常 | 适用：代码中的脚本/HTML 只显示文本 | `test/markdown.test.mjs::R-01-014/AC-03` |
 | 边界配置 | 适用：纯文本换行与空文本 | `test/markdown.test.mjs::R-01-014/AC-06` |
-| 副作用 | 适用：工具摘要不渲染、图片分段不抓 URL | `test/render.test.mjs::R-01-014/AC-05`、`test/render.test.mjs::R-01-010/AC-01` |
+| 副作用 | 适用：工具摘要不渲染、图片分段不抓 URL | `test/markdown.test.mjs::R-01-014/AC-05`、`test/render.test.mjs::R-01-010/AC-01` |
 | 安全 | 适用：危险协议链接只显示文字 | `test/markdown.test.mjs::R-01-014/AC-04` |
 | 兼容性 | 适用：既有 PDF/e2e 与 A4 分页不回归 | `test/pdf.test.mjs::R-01-005/AC-02`、`e2e/specs/pdf-export.mjs::R-01-005/AC-02` |
 

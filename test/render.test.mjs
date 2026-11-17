@@ -1,4 +1,4 @@
-// 测试锚点: R-01-005/AC-02 R-01-010/AC-01 R-01-010/AC-02 R-01-012/AC-02 R-01-012/AC-03 R-01-014/AC-05
+// 测试锚点: R-01-005/AC-02 R-01-010/AC-01 R-01-010/AC-02 R-01-012/AC-02 R-01-012/AC-03
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { PAGE_STYLE, escapeHtml, renderTranscriptHtml } from '../src/render.mjs'

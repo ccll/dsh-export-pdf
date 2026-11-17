@@ -2,7 +2,7 @@ import { escapeHtml } from './html.mjs'
 
 const SAFE_LINK = /^(?:https?:\/\/|mailto:)/i
 const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/
-const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)\s*$/
+const FENCE = /^ {0,3}(`{3,}|~{3,})\s*(.*?)\s*$/
 const HR = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/
 const UL_ITEM = /^ {0,3}[-+*]\s+(.*)$/
 const OL_ITEM = /^ {0,3}(\d{1,9})[.)]\s+(.*)$/
@@ -39,6 +39,7 @@ function startsBlock(lines, index) {
     QUOTE.test(line) ||
     UL_ITEM.test(line) ||
     OL_ITEM.test(line) ||
+    SETEXT.test(line) ||
     isTableStart(lines, index)
   )
 }
@@ -57,7 +58,7 @@ function renderBlocks(lines) {
     if (fence) {
       const marker = fence[1][0]
       const length = fence[1].length
-      const language = fence[2].trim()
+      const language = fence[2].trim().split(/\s+/)[0] ?? ''
       const code = []
       index += 1
       const closing = new RegExp(`^ {0,3}${marker === '`' ? '`' : '~'}{${length},}\\s*$`)
@@ -73,13 +74,6 @@ function renderBlocks(lines) {
       const level = heading[1].length
       blocks.push(`<h${level}>${renderInline(heading[2])}</h${level}>`)
       index += 1
-      continue
-    }
-
-    if (index + 1 < lines.length && SETEXT.test(lines[index + 1]) && !startsBlock(lines, index)) {
-      const level = lines[index + 1].trim().startsWith('=') ? 1 : 2
-      blocks.push(`<h${level}>${renderInline(line.trim())}</h${level}>`)
-      index += 2
       continue
     }
 
@@ -120,7 +114,7 @@ function renderBlocks(lines) {
           const nextItem = next.match(ordered ? OL_ITEM : UL_ITEM)
           if (nextItem && nextIndent <= itemIndent) break
           if (!/^\s{2,}/.test(next)) break
-          content += `\n${next.trimStart()}`
+          content += `\n${next.slice(Math.min(next.length, itemIndent + 2)).trimEnd()}`
           index += 1
         }
         items.push(content)
@@ -166,7 +160,13 @@ function renderBlocks(lines) {
     while (index < lines.length && !isBlank(lines[index]) && !startsBlock(lines, index)) {
       paragraph.push(lines[index++])
     }
-    blocks.push(`<p>${renderInline(paragraph.join('\n'))}</p>`)
+    if (index < lines.length && SETEXT.test(lines[index])) {
+      const level = lines[index].trim().startsWith('=') ? 1 : 2
+      blocks.push(`<h${level}>${renderInline(paragraph.join('\n'))}</h${level}>`)
+      index += 1
+    } else {
+      blocks.push(`<p>${renderInline(paragraph.join('\n'))}</p>`)
+    }
   }
   return blocks.join('\n')
 }
@@ -175,7 +175,7 @@ function splitTableRow(line) {
   let value = line.trim()
   if (value.startsWith('|')) value = value.slice(1)
   if (value.endsWith('|')) value = value.slice(0, -1)
-  return value.split('|').map((cell) => cell.trim())
+  return value.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, '|'))
 }
 
 function safeHref(raw) {
@@ -250,7 +250,7 @@ function renderInline(source) {
   text = replaceLinks(text, (label, href, image) => {
     if (image) {
       const alt = String(label).trim()
-      return token(`<span class="md-image">[图片${alt === '' ? '' : `：${escapeHtml(alt)}`}]</span>`)
+      return token(`<span class="md-image">[图片${alt === '' ? '' : `: ${escapeHtml(alt)}`}]</span>`)
     }
     const safe = safeHref(href)
     if (safe === undefined) return token(renderInline(label))
@@ -259,13 +259,13 @@ function renderInline(source) {
 
   text = escapeHtml(text)
   text = text
-    .replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>')
-    .replace(/___([^_\n]+)___/g, '<strong><em>$1</em></strong>')
-    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
-    .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
-    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>')
-    .replace(/(?<![\w])_([^_\n]+)_(?![\w])/g, '<em>$1</em>')
+    .replace(/(?<!\*)\*\*\*(?![\s*])([^*\n]*?[^\s*])\*\*\*(?!\*)/g, '<strong><em>$1</em></strong>')
+    .replace(/(?<![\w_])___(?![\s_])([^_\n]*?[^\s_])(?![\w_])/g, '<strong><em>$1</em></strong>')
+    .replace(/(?<!\*)\*\*(?![\s*])([^*\n]*?[^\s*])\*\*(?!\*)/g, '<strong>$1</strong>')
+    .replace(/(?<![\w_])__(?![\s_])([^_\n]*?[^\s_])(?![\w_])/g, '<strong>$1</strong>')
+    .replace(/~~(?![\s~])([^~\n]*?[^\s~])~~/g, '<del>$1</del>')
+    .replace(/(?<!\*)\*(?![\s*])([^*\n]*?[^\s*])\*(?!\*)/g, '<em>$1</em>')
+    .replace(/(?<![\w_])_(?![\s_])([^_\n]*?[^\s_])(?![\w_])/g, '<em>$1</em>')
     .replace(/\n/g, '<br>')
   return text.replace(/\uE000MD(\d+)\uE001/g, (_, index) => tokens[Number(index)] ?? '')
 }
