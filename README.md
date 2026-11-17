@@ -53,7 +53,7 @@ Invalid values fail at plugin load instead of silently falling back.
 
 - **PDF view page**: a view in the session view area providing both preview and download.
 - **In-page preview**: on desktop viewports the generated PDF is displayed in place in the browser's PDF viewer, with navigation across all pages.
-- **Mobile access**: at viewports of 720px or narrower the embedded viewer is replaced by an "Open full PDF" link; it opens the same PDF in a new tab so the system viewer can show every page.
+- **Narrow viewports (mobile)**: at viewports of 720px or narrower the embedded viewer is replaced by an "Open full PDF" link; it opens the same PDF in a new tab so the system viewer can show every page.
 - **Download**: delivers the same bytes under the stable filename above.
 - **Faithful transcript**: user and assistant message text in log order by default; image placeholders follow the image mode, while the header checkboxes add file placeholders and one-line tool summaries; thinking blocks omitted.
 - **Readable Chinese output**: CJK glyphs embedded, A4 pages, Chrome's default header/footer disabled so no date, title, or temporary file path is printed.

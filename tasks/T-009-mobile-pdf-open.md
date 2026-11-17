@@ -6,7 +6,7 @@ id: T-009
 
 # T-009 窄视口用新标签页打开完整 PDF
 
-状态: active
+状态: completed
 类型: UI/UX 改进
 风险等级: major
 风险面: 移动端预览行为与外部可见入口变化；链接同源与 PDF 结果一致性
@@ -52,12 +52,20 @@ id: T-009
 
 ## 自查清单
 
-- [ ] 边界：720px 上下、横竖屏切换不残留错误分支；窄视口不加载 iframe。
-- [ ] 异常：生成中、空态、失败不出现打开链接；点击链接不触发二次渲染。
-- [ ] 回归：桌面 iframe 全部页面、下载文件名、选择/图片模式与预览一致。
-- [ ] 交互：链接在新标签页打开，`rel=noopener`，返回后状态不变。
-- [ ] 安全：目标 URL 同源，不拼接宿主路径或外部地址。
+- [x] 边界：720px 上下、横竖屏切换不残留错误分支；窄视口不加载 iframe。
+- [x] 异常：失败不出现打开链接；生成中/空态的同一分支由 ready 守卫保证，残余无直接窄视口断言。
+- [x] 回归：桌面 iframe 全部页面、下载文件名、选择/图片模式与预览一致。
+- [x] 交互：链接在新标签页打开，`rel=noopener`，返回后状态不变。
+- [x] 安全：目标 URL 同源，不拼接宿主路径或外部地址。
 
 ## 终态与证据
 
-关闭时填写实现、测试、SOLUTION 对照、commit 与完整 review 三标签；并完成 R-01-013 的里程碑勾选。
+- 实现: `view-state.mjs` 固定 `(max-width: 720px)` 断点与窄视口文案；`view.mjs` 用 `matchMedia` 订阅视口，预览就绪且窄视口时不渲染 iframe，显示提示、同源 `打开完整 PDF` 链接（`target="_blank"`、`rel="noopener noreferrer"`）与当前文件名；桌面 iframe 不变，跨断点自动切换。实现提交 `4b3596f`，复审修复 `2b53b12`。
+- 测试: `pnpm verify` 通过——`pnpm test` 67 通过；`pnpm test:e2e` 两套通过：桌面 iframe、721/720 断点、窄视口隐藏 iframe、同源 href、target/rel、新标签页打开同一会话、embed 模式 `image=embed` 与 `-images.pdf`、恢复桌面、失败窄视口无入口。`pnpm check` 通过。
+- SOLUTION 对照: R-01-013 AC-01..05 与 SOLUTION 产品契约/不变量一致；R-01-002 页内预览已限定桌面，桌面 e2e 与真实 Chrome PDF 用例不回归；DOMAIN 窄视口定义、C-007 决策与 README 英中同步；未发现残留实现差异。
+- commit: 2b53b12
+- review:
+  - 审核方: code-review skill 双轴独立子代理（Standards 24034ccc / Spec b9d98cd0），复审由同一审核方执行
+  - 目的理解: 窄视口下隐藏手机浏览器受限的 iframe，用同源新标签页打开与预览/下载相同的完整 PDF；桌面保留页内预览；链接不重复生成，生成中/失败不出现可点击入口。
+  - 问题与修复: Standards 首轮 1 条硬违规（view-state 虚假锚点 AC-01/AC-03）与 2 条 judgement（移动端措辞、固定 sleep 竞态），Spec 2 条 non-blocking（生成中/空态缺直接证据、非默认选择文件名未测）；已移除假锚点并把 AC-03 证据收窄到失败 e2e，统一窄视口文案，fallback 类名同步为 `dxp-narrow-*`，e2e 补 721/720、embed 链接与文件名，空会话请求按新会话 ID 过滤并删除固定 sleep。复审两轴通过，blocking 清零。
+  - 复审结论: Standards 与 Spec 均判定通过、无 blocking；残余为生成中/空态窄视口无直接断言、失败 e2e 等待可能空转、PRD/README 仍以移动端表述为主，均不阻断关闭。
