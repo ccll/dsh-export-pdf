@@ -114,7 +114,7 @@ function renderBlocks(lines) {
           const nextItem = next.match(ordered ? OL_ITEM : UL_ITEM)
           if (nextItem && nextIndent <= itemIndent) break
           if (!/^\s{2,}/.test(next)) break
-          const remove = Math.min(next.length, itemIndent + (next.length >= itemIndent + 2 ? 2 : 0))
+          const remove = Math.min(next.length, nextIndent <= itemIndent + 1 ? nextIndent : itemIndent + 2)
           content += `\n${next.slice(remove).trimEnd()}`
           index += 1
         }

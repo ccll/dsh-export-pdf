@@ -107,6 +107,8 @@ test('多行 Setext 标题与表格转义管道', () => {
 test('缩进列表续行与下划线强调不丢原文', () => {
   assert.match(renderMarkdown('  - a\n  b'), /<li><p>a<br>b<\/p><\/li>/)
   assert.match(renderMarkdown('   - a\n   b'), /<li><p>a<br>b<\/p><\/li>/)
+  assert.match(renderMarkdown('  - a\n   b'), /<li><p>a<br>b<\/p><\/li>/)
+  assert.match(renderMarkdown('  - a\n   bbbbb'), /<li><p>a<br>bbbbb<\/p><\/li>/)
   assert.equal(renderMarkdown('__粗体__'), '<p><strong>粗体</strong></p>')
   assert.equal(renderMarkdown('这是__重点__。'), '<p>这是<strong>重点</strong>。</p>')
   assert.equal(renderMarkdown('___粗斜___'), '<p><strong><em>粗斜</em></strong></p>')
