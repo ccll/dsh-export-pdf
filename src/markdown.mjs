@@ -114,7 +114,8 @@ function renderBlocks(lines) {
           const nextItem = next.match(ordered ? OL_ITEM : UL_ITEM)
           if (nextItem && nextIndent <= itemIndent) break
           if (!/^\s{2,}/.test(next)) break
-          content += `\n${next.slice(Math.min(next.length, itemIndent + 2)).trimEnd()}`
+          const remove = Math.min(next.length, itemIndent + (next.length >= itemIndent + 2 ? 2 : 0))
+          content += `\n${next.slice(remove).trimEnd()}`
           index += 1
         }
         items.push(content)
@@ -208,8 +209,13 @@ function replaceLinks(source, convert) {
     }
     let labelEnd = labelStart
     while (labelEnd < source.length && source[labelEnd] !== ']') labelEnd += 1
-    if (labelEnd >= source.length || source[labelEnd + 1] !== '(') {
-      output += source[index++]
+    if (labelEnd >= source.length) {
+      output += source.slice(index)
+      break
+    }
+    if (source[labelEnd + 1] !== '(') {
+      output += source.slice(index, labelEnd + 1)
+      index = labelEnd + 1
       continue
     }
     let depth = 1
@@ -260,12 +266,12 @@ function renderInline(source) {
   text = escapeHtml(text)
   text = text
     .replace(/(?<!\*)\*\*\*(?![\s*])([^*\n]*?[^\s*])\*\*\*(?!\*)/g, '<strong><em>$1</em></strong>')
-    .replace(/(?<![\w_])___(?![\s_])([^_\n]*?[^\s_])(?![\w_])/g, '<strong><em>$1</em></strong>')
+    .replace(/(?<![\w_])___(?![\s_])([^_\n]*?[^\s_])___(?![\w_])/g, '<strong><em>$1</em></strong>')
     .replace(/(?<!\*)\*\*(?![\s*])([^*\n]*?[^\s*])\*\*(?!\*)/g, '<strong>$1</strong>')
-    .replace(/(?<![\w_])__(?![\s_])([^_\n]*?[^\s_])(?![\w_])/g, '<strong>$1</strong>')
+    .replace(/(?<![\w_])__(?![\s_])([^_\n]*?[^\s_])__(?![\w_])/g, '<strong>$1</strong>')
     .replace(/~~(?![\s~])([^~\n]*?[^\s~])~~/g, '<del>$1</del>')
     .replace(/(?<!\*)\*(?![\s*])([^*\n]*?[^\s*])\*(?!\*)/g, '<em>$1</em>')
-    .replace(/(?<![\w_])_(?![\s_])([^_\n]*?[^\s_])(?![\w_])/g, '<em>$1</em>')
+    .replace(/(?<![\w_])_(?![\s_])([^_\n]*?[^\s_])_(?![\w_])/g, '<em>$1</em>')
     .replace(/\n/g, '<br>')
   return text.replace(/\uE000MD(\d+)\uE001/g, (_, index) => tokens[Number(index)] ?? '')
 }
