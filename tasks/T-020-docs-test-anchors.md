@@ -6,7 +6,7 @@ id: T-020
 
 # T-020 文档、测试锚点与残留清理
 
-状态: active
+状态: completed
 类型: 文档与测试证据同步
 风险等级: major
 风险面: 契约（sessionId 校验边界、测试锚点与 SOLUTION 陈述）
@@ -55,13 +55,18 @@ id: T-020
 
 ## 自查清单
 
-- [ ] 边界：sessionId 只接受契约字符集，前导空白 400；测试锚点不再虚标。
-- [ ] 异常：删除 helper 后测试仍覆盖图片/文件占位；文档无残留旧结论。
-- [ ] 回归：HTTP 契约、文件名、Markdown/PDF 输出不变；lint 无 error。
+- [x] 边界：sessionId 只接受契约字符集，前导空白 400；测试锚点不再虚标。
+- [x] 异常：删除 helper 后测试仍覆盖图片/文件占位；文档无残留旧结论。
+- [x] 回归：HTTP 契约、文件名、Markdown/PDF 输出不变；lint 无 error。
 
 ## 终态与证据
 
-- 实现: 待补
-- 测试: 待补
-- SOLUTION 对照: 待补
-- commit: 待补
+- 实现: CONVENTIONS 明确仅 `PIPELINE_MODULES` 与 CSS 热加载，`errors.mjs`/`process.mjs` 及宿主外壳需重启；SOLUTION 补代码位置并修正 220mm/120mm、取消路径、下载重渲染与配置表；README 双语补 M-008/M-009、配置/只读口径；移除 `messageText`/`resetCjkFontProbe`；`sessionId` 不再 trim；测试锚点与真实断言对齐，补 pipeline/host 的 AC-02 用例。
+- 测试: 全量 `node --test test/*.test.mjs` 136 通过 0 失败；`test/route.test.mjs` 13、`test/host.test.mjs` 7、`test/transcript.test.mjs` 9 通过；`python3 tools/agentmap_lint.py --report` 通过（无 error，仅既有风格 warning）；两套 e2e PASS；`node scripts/check.mjs` 通过（bundle 25436 字节）。
+- SOLUTION 对照: SOLUTION 的模块代码位置、配置可变点、临时目录/超时/预览失败语义、README 开发与行为说明与实现一致；HTTP 契约、文件名与 Markdown/PDF 输出未变。
+- commit: 1cac2f6
+- review:
+  - 审核方: `review-client`（独立子代理，双轴审核）
+  - 目的理解: 核验文档、测试锚点与残留 helper 清理是否真实反映当前实现，且不引入行为变化或虚标追溯覆盖。
+  - 问题与修复: 无 blocking。non-blocking 为 T-019/T-020 矩阵引用未对齐真实测试（已改）、`scripts/check.mjs::check` 入口名不实（已改 `main`）、README 热加载口径宽于实现（已改 PIPELINE_MODULES）、SOLUTION 时序图缺 GET 分支（已补）、AC-02 仅组件级代理（已补 host apply 用例）。
+  - 复审结论: 文档与测试证据已与实现对齐，无 blocking；客户端状态机组件级测试缺口登记为残余。

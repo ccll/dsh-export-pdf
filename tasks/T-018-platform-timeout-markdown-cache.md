@@ -6,7 +6,7 @@ id: T-018
 
 # T-018 跨平台探测、导出时限与 Markdown/缓存健壮性
 
-状态: active
+状态: completed
 类型: 健壮性与跨平台修复
 风险等级: major
 风险面: 契约（新增 `exportTimeoutMs` 总时限与 500 render 失败语义）；安全（不可信会话内容的扫描与递归边界）
@@ -68,13 +68,18 @@ id: T-018
 
 ## 自查清单
 
-- [ ] 边界：字体空结果继续扫描；标准安装路径优先于 PATH；导出时限 1–600000 且显式值不小于 `timeoutMs`。
-- [ ] 异常：超时清理单飞表；降级结果不缓存；非法导出结果返回 500 render。
-- [ ] 回归：HTTP 契约、文件名、图片三模式、Markdown 既有用例与 e2e 不变。
+- [x] 边界：字体空结果继续扫描；标准安装路径优先于 PATH；导出时限 1–600000 且显式值不小于 `timeoutMs`。
+- [x] 异常：超时清理单飞表；降级结果不缓存；非法导出结果返回 500 render。
+- [x] 回归：HTTP 契约、文件名、图片三模式、Markdown 既有用例与 e2e 不变。
 
 ## 终态与证据
 
-- 实现: 待补
-- 测试: 待补
-- SOLUTION 对照: 待补
-- commit: 待补
+- 实现: 字体探测在 fontconfig 未命中/空结果/不可用时继续扫描目录，并补 Windows/macOS/Linux 常见文件名；浏览器先探平台标准安装位置再探 PATH；新增 `exportTimeoutMs`（缺省取 max(120000, timeoutMs)，显式值不得小于 `timeoutMs`）以绝对 deadline 约束读日志、单飞等待与渲染；Markdown 链接扫描改线性并加块级递归预算；缓存增加 128 MiB 字节预算、降级 PDF 不缓存并清同键旧条目；路由拒绝非法形状与零字节 PDF，宿主兜底未分类异常并展开 cause 链。
+- 测试: 全量 `node --test test/*.test.mjs` 136 通过 0 失败；`test/fonts.test.mjs` 1、`test/chrome.test.mjs` 6、`test/config.test.mjs` 3、`test/markdown.test.mjs` 16、`test/exporter.test.mjs` 26、`test/route.test.mjs` 13 通过；`node scripts/check.mjs` 通过；`node e2e/run.mjs` 两套 PASS。
+- SOLUTION 对照: SOLUTION 的运行时/失败语义、外部集成、配置表、缓存生命周期与代码位置已同步；`exportTimeoutMs` 与 `timeoutMs` 的顺序、超时仍可能占用并发槽的边界已写明；HTTP 状态码/错误码、文件名与图片模式未变。
+- commit: 1cac2f6
+- review:
+  - 审核方: `review-host`（独立子代理，双轴审核）
+  - 目的理解: 核验跨平台探测、导出总时限、Markdown 与缓存修复是否解决审查发现，同时不破坏既有导出契约与配置兼容。
+  - 问题与修复: 无 blocking。non-blocking 为列表/引用交替嵌套仍可溢出（已加块级总深度预算并补三组 4000 层用例）、超时不取消底层任务且可能占槽（已强制 `exportTimeoutMs≥timeoutMs` 并改文档）、timer unref 依赖测试环境（已移除并补 readSession 卡住用例）、字体空结果/host catch 缺口与缺省值双定义（登记为残余）。
+  - 复审结论: 探测、时限、扫描与缓存语义自洽，无 blocking；残余风险已文档化。

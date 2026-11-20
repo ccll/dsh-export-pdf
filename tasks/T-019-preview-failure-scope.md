@@ -6,7 +6,7 @@ id: T-019
 
 # T-019 预览失败回退与 401/状态作用域
 
-状态: active
+状态: completed
 类型: 客户端失败态与边界修复
 风险等级: major
 风险面: 契约（预览就绪判定与 401/403 页内文案）
@@ -59,13 +59,18 @@ id: T-019
 
 ## 自查清单
 
-- [ ] 边界：HEAD 200 后 GET 204/500/非 PDF 都进入正确状态；401/403 不显示英文正文。
-- [ ] 异常：GET 校验失败可重试；切换会话/选择后旧状态不展示。
-- [ ] 回归：iframe 仍指向 `/api/session.pdf`，窄视口链接同源、下载文件名不变；两套 e2e 通过。
+- [x] 边界：HEAD 200 后 GET 204/500/非 PDF 都进入正确状态；401/403 不显示英文正文。
+- [x] 异常：GET 校验失败可重试；切换会话/选择后旧状态不展示。
+- [x] 回归：iframe 仍指向 `/api/session.pdf`，窄视口链接同源、下载文件名不变；两套 e2e 通过。
 
 ## 终态与证据
 
-- 实现: 待补
-- 测试: 待补
-- SOLUTION 对照: 待补
-- commit: 待补
+- 实现: 预览在 HEAD 200 后追加同源 GET 校验，GET 204/4xx/5xx、非 PDF Content-Type 或网络失败均转页内错误并可重试；401/403 给可操作中文原因；空态/错误态与下载错误带会话/选择作用域，旧作用域状态显示生成中；下载锚点不再写入 `document.body`；Config/locale 明确为 patch-only 与简体中文口径。
+- 测试: 全量 `node --test test/*.test.mjs` 136 通过 0 失败；`test/view-state.test.mjs` 8 通过；`node e2e/run.mjs` 两套 PASS——`pdf-failure.mjs` 真实拦截 HEAD 200/GET 500 并断言错误文案，`pdf-export.mjs` 验证预览/下载同字节与窄视口同源链接；`node scripts/check.mjs` 通过。
+- SOLUTION 对照: SOLUTION 的运行时图/文字已加入 HEAD→GET 校验及失败分支，并声明挂载后 iframe GET 不被观测；配置表与 README 双语同步 patch-only 与中文 UI；iframe 源地址、文件名与窄视口行为未变。
+- commit: 1cac2f6
+- review:
+  - 审核方: `review-client`（独立子代理，双轴审核）
+  - 目的理解: 核验 HEAD 成功后 GET 失败的就绪态缺陷是否消除，以及 401/403、状态作用域、下载锚点与 Config/locale 口径是否与契约一致。
+  - 问题与修复: 无 blocking。non-blocking 为下载错误态未作用域（已补 sessionId/selectionKey 与 displayDownload 过滤）、200 非 PDF 未取消 body（已先 cancel 并带 HTTP 状态）、e2e GET 500 证据易与旧文案混淆（已等待 GET 500 并使用独立文案）、AC-02 锚点不实（已补 host apply 用例）、任务矩阵引用错位与 README/SOLUTION 口径（已修正）。
+  - 复审结论: 预览失败态与状态作用域修复成立，无 blocking；挂载后 iframe GET 不观测属已写入 SOLUTION 的残余。

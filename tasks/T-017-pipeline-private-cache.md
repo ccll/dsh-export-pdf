@@ -6,7 +6,7 @@ id: T-017
 
 # T-017 渲染管线私有临时目录与 bundle 门禁
 
-状态: active
+状态: completed
 类型: 安全加固与构建门禁
 风险等级: major
 风险面: 安全（生成模块的临时目录与写后 import 执行面）；构建门禁（客户端 bundle 一致性）
@@ -62,13 +62,18 @@ id: T-017
 
 ## 自查清单
 
-- [ ] 边界：默认目录随机且 0700；显式目录仍可用；旧目录清理只删超龄且 PID 不在的目录。
-- [ ] 异常：mkdtemp/write/rename/import 失败时沿用上一版；清理失败只记日志。
-- [ ] 回归：热加载、导出输出、HTTP 契约与 e2e 不变；bundle 门禁在构建前可失败。
+- [x] 边界：默认目录随机且 0700；显式目录仍可用；旧目录清理只删超龄且 PID 不在的目录。
+- [x] 异常：mkdtemp/write/rename/import 失败时沿用上一版；清理失败只记日志。
+- [x] 回归：热加载、导出输出、HTTP 契约与 e2e 不变；bundle 门禁在构建前可失败。
 
 ## 终态与证据
 
-- 实现: 待补
-- 测试: 待补
-- SOLUTION 对照: 待补
-- commit: 待补
+- 实现: 默认缓存改为 `mkdtemp` 生成的 0700 私有目录（前缀含 PID），生成模块先写 0600 临时文件再 rename；`dispose()` 删除私有目录并注册到宿主 `ctx.effect`；启动首次加载时回收超龄且 PID 已不存在的旧目录。bundle 门禁改为 check 先于 build，CI 构建后校验 `git diff`，check 对 bundle 做 `node --check` 并按 UTF-8 字节报告。
+- 测试: `node --test test/pipeline.test.mjs` 13 通过、`test/hot-reload.test.mjs` 4 通过；全量 `node --test test/*.test.mjs` 136 通过 0 失败；`node scripts/check.mjs` 通过（20 源文件、bundle 25436 字节）；临时副本追加字节后 check 退出 1，证明构建前可发现漂移；`node e2e/run.mjs` 两套 PASS。
+- SOLUTION 对照: SOLUTION 的临时模块段、CONVENTIONS 验证门禁与 README 开发命令已同步私有目录、首次加载回收、check→build→drift 的顺序；HTTP 契约与导出输出未变。
+- commit: 1cac2f6
+- review:
+  - 审核方: `review-host`（独立子代理，双轴审核）
+  - 目的理解: 核验可预测共享临时目录写后 import 的风险是否被私有目录、原子写与生命周期清理消除，以及 bundle 门禁是否在构建前真正可失败。
+  - 问题与修复: 无 blocking。non-blocking 为 hot-reload 测试仍落默认目录（已改 fixture 内显式 cacheDirectory，实测 tmpdir 25→25）、`pnpm verify` 缺构建后 drift diff（已补）、pipeline 测试会清扫真实 tmpdir 与 PID 复用漏删（登记为残余）。
+  - 复审结论: 私有目录权限/随机名/原子写/清理路径与门禁顺序均成立，无 blocking；残余不阻断交付。
