@@ -6,7 +6,7 @@
 
 DeepSeek Harness（DSH）Web 插件：在会话视图区增加一个 **PDF 页**。打开该页即可看到当前会话转录生成的 PDF 预览，点一下即可下载同一份文件；不选格式、不填参数、不跳转到外部转换工具。
 
-> **状态：已实现（0.1.0）。** 任务 T-001 已交付插件、测试与浏览器验收。当前通过本地 link 安装，尚未发布带标签的版本。
+> **状态：已发布（v0.1.0）。** 从 GitHub 安装带标签的版本；同一提交已随附构建好的浏览器 bundle。
 
 ## 前置条件
 
@@ -17,9 +17,11 @@ DeepSeek Harness（DSH）Web 插件：在会话视图区增加一个 **PDF 页**
 ## 安装
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-export-pdf
+dsh plugin --profile web add github:ccll/dsh-export-pdf#v0.1.0
 dsh web
 ```
+
+从本地 checkout 开发时改用本地路径安装：`dsh plugin --profile web add /path/to/dsh-export-pdf`。
 
 仓库随附构建好的浏览器 bundle（`.dsh-plugin/client.js`），安装时无需构建。修改 `src/` 后运行 `pnpm build:client`；客户端入口是手工拼装的片段包，不是 Vite 工程。
 

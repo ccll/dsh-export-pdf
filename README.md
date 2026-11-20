@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 A DeepSeek Harness (DSH) web plugin that adds a **PDF view page** to a session. Open the page and the conversation transcript is rendered as a PDF you can browse in place; one click downloads the same document. There is no format picker, no parameter form, and no detour through an external converter.
 
-> **Status: implemented (0.1.0).** Task T-001 delivered the plugin, its tests, and the browser acceptance run. It installs from this checkout as a local link; no tagged release exists yet.
+> **Status: released (v0.1.0).** Install the tagged release from GitHub; the same commit ships the built browser bundle.
 
 ## Requirements
 
@@ -17,9 +17,11 @@ A DeepSeek Harness (DSH) web plugin that adds a **PDF view page** to a session. 
 ## Install
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-export-pdf
+dsh plugin --profile web add github:ccll/dsh-export-pdf#v0.1.0
 dsh web
 ```
+
+To develop from a checkout, add its local path instead: `dsh plugin --profile web add /path/to/dsh-export-pdf`.
 
 The repository ships the built browser bundle (`.dsh-plugin/client.js`), so installing needs no build step. After changing anything under `src/`, rebuild it with `pnpm build:client`; the client entry is a hand-built fragment bundle, not a Vite project.
 
