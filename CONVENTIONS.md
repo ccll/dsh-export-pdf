@@ -34,11 +34,25 @@ owner: agent 主笔，项目属主审批
 - 验证门禁: #验证门禁
 - 项目追加厚重主题时，在此登记一句话 + 锚点。
 
+<!-- BEGIN AGENTMAP COMMIT CONVENTION -->
+## Git 提交规范
+
+- 标题使用 `emoji 中文类型(scope): 中文结果描述`；标题与正文之间须空一行（commit-msg 校验）。
+- emoji/type 固定配对：⭐ 功能、✨ 改进、🐛 修复、📝 文档、🧪 测试、📌 计划、🧹 维护、⚙️ 配置、♻️ 重构、🚀 发布。
+- `scope` 使用小写字母、数字和连字符，首字符须为字母或数字，不使用 subscope。
+- 普通提交正文必须包含 `## 原因`、`## 影响`、`## 取舍`；Merge、Revert、fixup 与 squash 使用 Git 生成标题。
+- 实现、修正或关闭 task 的提交：正文须引用对应 `T-nnn`。
+  - 目的：`git blame` → commit → task 可反查。
+  - 不涉及 task 的提交：不要求引用。
+  - 被引用的 task 必须真实存在，commit-msg 校验。
+- `.githooks/commit-msg` 校验当前提交，`.githooks/pre-push` 重检 outgoing commits；项目附加规则放入 `.githooks/commit-msg.d/NN-name.sh`。
+<!-- END AGENTMAP COMMIT CONVENTION -->
+
 ## AgentMap 本地参数
 
 - 需求组按 `需求组 gg: 角色` 登记为编号账本（登记项永久保留，已退役组保留登记防复用）；活跃组的角色映射以 PRD 需求清单分节为准，两处不一致时 lint 报错并以分节为准修正。
 - 需求组 01: 会话操作者
-- agentmap 规范版本: 10
+- agentmap 规范版本: 11
 - 验证矩阵起始 task: T-001
 - 代码审核起始 task: T-001
 - 语义行阈值: 50
