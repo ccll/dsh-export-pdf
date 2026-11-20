@@ -42,7 +42,7 @@ export async function handlePdfRequest(request, exporter, options = {}) {
   }
 
   const url = new URL(request.url)
-  const sessionId = (url.searchParams.get('sessionId') ?? '').trim()
+  const sessionId = url.searchParams.get('sessionId') ?? ''
   if (sessionId === '' || sessionId.length > SESSION_ID_MAX || !SESSION_ID_PATTERN.test(sessionId)) {
     return textResponse(400, '缺少或非法的 sessionId', method, { code: 'request' })
   }
@@ -62,6 +62,12 @@ export async function handlePdfRequest(request, exporter, options = {}) {
   let result
   try {
     result = await exporter.exportSession(sessionId, include, imageMode)
+    if (result === null || typeof result !== 'object' || (result.kind !== 'pdf' && result.kind !== 'empty')) {
+      throw new RenderFailedError('导出结果形状非法')
+    }
+    if (result.kind === 'pdf' && (!(result.bytes instanceof Uint8Array) || result.bytes.byteLength === 0)) {
+      throw new RenderFailedError('导出结果缺少 PDF 字节')
+    }
   } catch (error) {
     if (!(error instanceof PdfExportError)) logError(`会话 ${sessionId} 导出时出现未分类错误`, error)
     return exportErrorResponse(error, method)

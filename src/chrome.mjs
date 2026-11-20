@@ -1,6 +1,6 @@
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, win32 } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { BrowserUnavailableError, RenderFailedError } from './errors.mjs'
@@ -12,31 +12,70 @@ export const BROWSER_PROBE_NAMES = ['google-chrome', 'google-chrome-stable', 'ch
 const STDERR_DETAIL_MAX = 1_000
 
 /**
- * 解析浏览器可执行文件。配置了路径却不可执行时明确失败；未配置时按
- * {@link BROWSER_PROBE_NAMES} 扫描 PATH。找不到返回 undefined，由调用方
- * 映射成 503。
+ * 解析浏览器可执行文件。配置了路径却不可执行时明确失败；未配置时先探平台
+ * 标准安装位置（macOS 应用包、Windows Program Files/LocalAppData），再按
+ * {@link BROWSER_PROBE_NAMES} 扫描 PATH。找不到返回 undefined，由调用方映射成 503。
  * @param {string} configured 配置的浏览器路径，空表示自动探测
+ * @param {{
+ *   platform?: NodeJS.Platform,
+ *   env?: NodeJS.ProcessEnv,
+ *   isExecutable?: (candidate: string) => Promise<boolean>,
+ * }} [options] 测试可注入平台、环境与可执行判定
  * @returns {Promise<string | undefined>}
  */
-export async function resolveBrowserPath(configured) {
+export async function resolveBrowserPath(configured, options = {}) {
+  const platform = options.platform ?? process.platform
+  const env = options.env ?? process.env
+  const checkExecutable = options.isExecutable ?? ((candidate) => isExecutable(candidate, platform))
   if (configured !== '') {
-    if (await isExecutable(configured)) return configured
+    if (await checkExecutable(configured)) return configured
     throw new BrowserUnavailableError(`配置的浏览器不可执行: ${configured}`)
   }
-  const directories = (process.env.PATH ?? '').split(delimiter).filter((directory) => directory !== '')
-  const names = process.platform === 'win32' ? BROWSER_PROBE_NAMES.flatMap((name) => [name, `${name}.exe`]) : BROWSER_PROBE_NAMES
+  for (const candidate of standardBrowserPaths(platform, env)) {
+    if (await checkExecutable(candidate)) return candidate
+  }
+  const separator = platform === 'win32' ? ';' : delimiter
+  const directories = (env.PATH ?? '').split(separator).filter((directory) => directory !== '')
+  const names = platform === 'win32' ? BROWSER_PROBE_NAMES.flatMap((name) => [name, `${name}.exe`]) : BROWSER_PROBE_NAMES
+  const joinPath = platform === 'win32' ? win32.join : join
   for (const name of names) {
     for (const directory of directories) {
-      const candidate = join(directory, name)
-      if (await isExecutable(candidate)) return candidate
+      const candidate = joinPath(directory, name)
+      if (await checkExecutable(candidate)) return candidate
     }
   }
   return undefined
 }
 
-async function isExecutable(candidate) {
+/**
+ * 平台标准安装位置；Linux 按 PATH 探测，返回空列表。
+ * @param {NodeJS.Platform} platform 运行平台
+ * @param {NodeJS.ProcessEnv} env 环境变量
+ * @returns {string[]}
+ */
+function standardBrowserPaths(platform, env) {
+  if (platform === 'darwin') {
+    return [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    ]
+  }
+  if (platform === 'win32') {
+    const roots = [env.ProgramFiles, env['ProgramFiles(x86)'], env.LOCALAPPDATA]
+      .filter((root) => typeof root === 'string' && root !== '')
+    return roots.flatMap((root) => [
+      win32.join(root, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      win32.join(root, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      win32.join(root, 'Chromium', 'Application', 'chrome.exe'),
+    ])
+  }
+  return []
+}
+
+async function isExecutable(candidate, platform) {
   try {
-    await access(candidate, process.platform === 'win32' ? constants.F_OK : constants.X_OK)
+    await access(candidate, platform === 'win32' ? constants.F_OK : constants.X_OK)
     return true
   } catch {
     return false

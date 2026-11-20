@@ -1,4 +1,4 @@
-// 测试锚点: R-01-003/AC-02 R-01-006/AC-01 R-01-006/AC-04 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-04 R-01-011/AC-05 R-01-012/AC-03 R-01-012/AC-05 R-01-012/AC-07
+// 测试锚点: R-01-003/AC-02 R-01-006/AC-01 R-01-006/AC-04 R-01-011/AC-02 R-01-011/AC-04 R-01-011/AC-05 R-01-012/AC-03 R-01-012/AC-05 R-01-012/AC-07
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createExporter } from '../src/exporter.mjs'
@@ -39,6 +39,8 @@ function makeExporter({
   loadPageStyle = () => ({ text: 'body {}', version: 'v1' }),
   maxConcurrentRenders = 2,
   cacheMaxEntries,
+  cacheMaxBytes,
+  exportTimeoutMs,
   logError = () => {},
 } = {}) {
   return createExporter({
@@ -50,6 +52,8 @@ function makeExporter({
     loadPageStyle,
     maxConcurrentRenders,
     ...(cacheMaxEntries === undefined ? {} : { cacheMaxEntries }),
+    ...(cacheMaxBytes === undefined ? {} : { cacheMaxBytes }),
+    ...(exportTimeoutMs === undefined ? {} : { exportTimeoutMs }),
     logError,
   })
 }
@@ -516,4 +520,86 @@ test('Markdown 本地图片读取失败回退占位文字，相对路径按会�
   assert.ok(htmls[0].includes('[图片: 远程]'))
   assert.ok(!htmls[0].includes('data:image'))
   assert.ok(logs.some((message) => message.includes('本地图片')), '失败写入日志')
+})
+
+test('导出超时返回渲染失败，后续请求可重新开始', async () => {
+  const gate = deferred()
+  let renders = 0
+  const exporter = makeExporter({
+    exportTimeoutMs: 40,
+    renderPdf: async () => {
+      renders += 1
+      return renders === 1 ? gate.promise : PDF
+    },
+  })
+  await assert.rejects(
+    Promise.race([
+      exporter.exportSession('s'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('导出未按时超时')), 1_000)),
+    ]),
+    (error) => error instanceof RenderFailedError && error.message.includes('超时'),
+  )
+  const second = await exporter.exportSession('s')
+  assert.equal(second.kind, 'pdf')
+  assert.equal(renders, 2, '超时后不能卡在旧单飞任务上')
+  gate.resolve(PDF)
+})
+
+test('缓存按字节上限淘汰最久未使用结果', async () => {
+  const big = new Uint8Array(1_024)
+  let renders = 0
+  const exporter = createExporter({
+    readSession: async (sessionId) => snapshot([userEvent(1, sessionId)]),
+    renderPdf: async () => {
+      renders += 1
+      return big
+    },
+    hasCjkFont: async () => true,
+    loadPageStyle: () => ({ text: 'body {}', version: 'v1' }),
+    cacheMaxBytes: 1_500,
+  })
+  await exporter.exportSession('a')
+  await exporter.exportSession('b')
+  await exporter.exportSession('a')
+  assert.equal(renders, 3, '两份 1024 字节结果超过 1500 字节预算，a 已被淘汰')
+})
+
+test('图片读取失败降级的 PDF 不缓存，恢复后重新读取', async () => {
+  const htmls = []
+  let reads = 0
+  let renders = 0
+  const exporter = makeExporter({
+    events: [userEvent(1, '看图'), imageEvent(2, IMAGE_REF)],
+    readImage: async () => {
+      reads += 1
+      if (reads === 1) throw new Error('附件暂时不可用')
+      return { data: IMAGE_BYTES, ref: IMAGE_REF }
+    },
+    renderPdf: async (html) => {
+      renders += 1
+      htmls.push(html)
+      return PDF
+    },
+    logError: () => {},
+  })
+  await exporter.exportSession('s', [], 'embed')
+  assert.ok(htmls[0].includes('[图片]'), '首次读取失败降级')
+  await exporter.exportSession('s', [], 'embed')
+  assert.equal(reads, 2, '降级结果不缓存，下一次重新读取')
+  assert.equal(renders, 2)
+  assert.ok(htmls[1].includes('data:image/png;base64'), '恢复后嵌入原图')
+})
+
+test('读取会话卡住也受导出总时限约束', async () => {
+  const exporter = makeExporter({
+    readSession: () => new Promise(() => {}),
+    exportTimeoutMs: 40,
+  })
+  await assert.rejects(
+    Promise.race([
+      exporter.exportSession('s'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('读取未按时超时')), 1_000)),
+    ]),
+    (error) => error instanceof RenderFailedError && error.message.includes('超时'),
+  )
 })

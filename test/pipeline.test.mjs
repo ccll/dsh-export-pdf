@@ -1,10 +1,17 @@
+// 测试锚点: R-01-007/AC-02
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { PIPELINE_MODULES, createPipelineLoader, generatePipelineSource, stripModuleSyntax } from '../src/pipeline.mjs'
+import {
+  PIPELINE_MODULES,
+  createPipelineLoader,
+  generatePipelineSource,
+  pruneStalePipelineDirectories,
+  stripModuleSyntax,
+} from '../src/pipeline.mjs'
 
 const SOURCE_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46])
@@ -159,3 +166,68 @@ test('首次加载就失败时把错误抛给调用方', () =>
       /渲染管线加载失败/,
     )
   }))
+
+test('默认管线缓存使用随机私有目录，dispose 删除目录', async () => {
+  const loader = createPipelineLoader({ directory: SOURCE_DIRECTORY })
+  const directory = await loader.cacheDirectory()
+  assert.match(basename(directory), new RegExp(`^dsh-export-pdf-${process.pid}-`))
+  assert.notEqual(directory, join(tmpdir(), 'dsh-export-pdf', `pid-${process.pid}`))
+  const stats = await stat(directory)
+  if (process.platform !== 'win32') assert.equal(stats.mode & 0o777, 0o700, '私有目录权限应为 0700')
+  const api = await loader.load()
+  assert.equal(typeof api.createExporter, 'function')
+  await loader.dispose()
+  await assert.rejects(stat(directory), { code: 'ENOENT' })
+})
+
+test('两个加载器的默认缓存目录互不共用', async () => {
+  const first = createPipelineLoader({ directory: SOURCE_DIRECTORY })
+  const second = createPipelineLoader({ directory: SOURCE_DIRECTORY })
+  try {
+    const [firstDirectory, secondDirectory] = await Promise.all([first.cacheDirectory(), second.cacheDirectory()])
+    assert.notEqual(firstDirectory, secondDirectory)
+  } finally {
+    await first.dispose()
+    await second.dispose()
+  }
+})
+
+test('启动清理只删除超过 24 小时且进程已不存在的旧目录', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'dsh-pipeline-sweep-'))
+  try {
+    const stale = join(base, 'dsh-export-pdf-424242-stale')
+    const live = join(base, 'dsh-export-pdf-424243-live')
+    const legacy = join(base, 'dsh-export-pdf', 'pid-424244')
+    await mkdir(stale)
+    await mkdir(live)
+    await mkdir(legacy, { recursive: true })
+    const old = new Date(Date.now() - 25 * 60 * 60 * 1000)
+    await utimes(stale, old, old)
+    await utimes(live, old, old)
+    await utimes(legacy, old, old)
+
+    const result = await pruneStalePipelineDirectories({
+      baseDirectory: base,
+      now: Date.now(),
+      isAlive: (pid) => pid === 424243,
+    })
+    assert.equal(result.removed, 2, '删除死亡进程的私有目录与旧版 pid 目录')
+    await assert.rejects(stat(stale), { code: 'ENOENT' })
+    await assert.rejects(stat(legacy), { code: 'ENOENT' })
+    await stat(live)
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+
+test('创建加载器本身不产生缓存目录', async () => {
+  const prefix = `dsh-export-pdf-${process.pid}-`
+  const before = new Set((await readdir(tmpdir())).filter((name) => name.startsWith(prefix)))
+  const loader = createPipelineLoader({ directory: SOURCE_DIRECTORY })
+  const afterCreate = new Set((await readdir(tmpdir())).filter((name) => name.startsWith(prefix)))
+  assert.deepEqual(afterCreate, before, '只创建加载器不应产生导出缓存目录')
+  const directory = await loader.cacheDirectory()
+  assert.equal(directory.startsWith(join(tmpdir(), prefix)), true)
+  await loader.dispose()
+})

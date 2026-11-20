@@ -1,4 +1,4 @@
-// 测试锚点: R-01-008/AC-01 R-01-012/AC-07
+// 测试锚点: R-01-012/AC-07
 // 宿主插件把路由注册到 Connection 的 /api fetch 注册表：鉴权与 Host/Origin
 // 栅栏由宿主该通道统一施加，插件只在该边界内做参数与导出编排。
 import assert from 'node:assert/strict'

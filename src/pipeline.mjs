@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -57,6 +57,12 @@ const REEXPORT_STATEMENT = /^\s*export\s*\{[^}]*\}\s*from\s/
 const EXPORT_DECLARATION = /^export\s+(?=(?:async\s+)?(?:function|const|let|var|class)\s)/gm
 /** 生成模块的缓存文件保留窗口：只回收一小时前的旧版本，避免并发加载被误删。 */
 const STALE_AFTER_MS = 60 * 60 * 1_000
+/** 旧私有目录的回收窗口；必须远大于插件进程的存活时间。 */
+const STALE_DIRECTORY_MS = 24 * 60 * 60 * 1_000
+/** 当前私有目录前缀；带 PID 便于判断目录所属进程是否仍在运行。 */
+const CACHE_DIRECTORY_PREFIX = 'dsh-export-pdf-'
+/** 旧版共享基础目录；只在其中的 pid 子目录超龄且进程不存在时回收。 */
+const LEGACY_CACHE_DIRECTORY = 'dsh-export-pdf'
 
 /**
  * 去掉一个模块的 ESM 语法，把它变成可拼接的片段。只支持 import 声明、
@@ -104,18 +110,36 @@ export function generatePipelineSource(sources, { errorsUrl }) {
  * 源码内容没变直接复用上次的模块；变了就生成一个新文件名的自包含模块并 import，
  * Node 的模块缓存因此不会命中旧代码。生成或加载失败时沿用上一版并记日志，
  * 只有从未成功过才把错误抛给调用方。
+ *
+ * 默认缓存目录用 `mkdtemp` 创建为 0700 私有目录；显式 `cacheDirectory` 由调用方
+ * 负责权限与清理。`dispose()` 只删除默认目录。
  * @param {{
  *   directory?: string,
  *   cacheDirectory?: string,
  *   logError?: (message: string, error: unknown) => void,
  * }} [options]
- * @returns {{ load: () => Promise<any> }}
+ * @returns {{ load: () => Promise<any>, cacheDirectory: () => Promise<string>, dispose: () => Promise<void> }}
  */
 export function createPipelineLoader(options = {}) {
   const directory = options.directory ?? SOURCE_DIRECTORY
-  const cacheDirectory = options.cacheDirectory ?? join(tmpdir(), 'dsh-export-pdf', `pid-${process.pid}`)
+  const explicitCacheDirectory = options.cacheDirectory
   const logError = options.logError ?? (() => {})
+  let cacheDirectoryPromise = null
+  let disposed = false
   let cached = null
+
+  const resolveCacheDirectory = async () => {
+    if (explicitCacheDirectory !== undefined) {
+      await mkdir(explicitCacheDirectory, { recursive: true, mode: 0o700 })
+      return explicitCacheDirectory
+    }
+    cacheDirectoryPromise ??= (async () => {
+      const pruned = await pruneStalePipelineDirectories().catch((error) => ({ removed: 0, errors: [error] }))
+      for (const error of pruned.errors) logError('渲染管线旧缓存目录清理失败', error)
+      return mkdtemp(join(tmpdir(), `${CACHE_DIRECTORY_PREFIX}${process.pid}-`))
+    })()
+    return cacheDirectoryPromise
+  }
 
   return {
     /**
@@ -123,6 +147,7 @@ export function createPipelineLoader(options = {}) {
      * @returns {Promise<any>} 管线模块命名空间
      */
     async load() {
+      if (disposed) throw new Error('dsh-export-pdf: 渲染管线加载器已卸载')
       try {
         const sources = await Promise.all(
           PIPELINE_MODULES.map(async (name) => [name, await readFile(join(directory, name), 'utf8')]),
@@ -131,9 +156,9 @@ export function createPipelineLoader(options = {}) {
         if (cached !== null && cached.version === version) return cached.api
 
         const source = generatePipelineSource(sources, { errorsUrl: pathToFileURL(join(directory, 'errors.mjs')).href })
-        await mkdir(cacheDirectory, { recursive: true })
+        const cacheDirectory = await resolveCacheDirectory()
         const file = join(cacheDirectory, `pipeline-${version}.mjs`)
-        await writeFile(file, source, 'utf8')
+        await writePipelineFile(cacheDirectory, file, source)
         const api = await import(pathToFileURL(file).href)
         cached = { version, api }
         await prunePipelineFiles(cacheDirectory, file).catch((error) => {
@@ -149,7 +174,165 @@ export function createPipelineLoader(options = {}) {
         throw new Error('dsh-export-pdf: 渲染管线加载失败', { cause: error })
       }
     },
+
+    /** 返回默认私有缓存目录；显式 `cacheDirectory` 直接返回该路径。 */
+    cacheDirectory: resolveCacheDirectory,
+
+    /** 删除默认私有缓存目录；清理失败只记日志，不影响插件卸载。 */
+    async dispose() {
+      disposed = true
+      if (explicitCacheDirectory !== undefined || cacheDirectoryPromise === null) return
+      const cacheDirectory = await cacheDirectoryPromise.catch(() => undefined)
+      if (cacheDirectory === undefined) return
+      try {
+        await rm(cacheDirectory, { recursive: true, force: true })
+      } catch (error) {
+        logError('渲染管线私有目录清理失败', error)
+      }
+    },
   }
+}
+
+/**
+ * 原子写入生成模块：先写同目录临时文件再 rename，避免并发请求读到截断文件。
+ * 私有目录内仍显式使用 0600，减少默认 umask 的差异。
+ * @param {string} directory 私有缓存目录
+ * @param {string} file 目标文件
+ * @param {string} text 模块源码
+ */
+async function writePipelineFile(directory, file, text) {
+  const temporary = join(directory, `.pipeline-${randomUUID()}.tmp`)
+  await writeFile(temporary, text, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+  try {
+    try {
+      await rename(temporary, file)
+    } catch (error) {
+      // Windows 不允许 rename 覆盖已存在文件；同版本并发加载时先删再换。
+      if (error.code !== 'EEXIST' && error.code !== 'EPERM') throw error
+      await rm(file, { force: true })
+      await rename(temporary, file)
+    }
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {})
+    throw error
+  }
+}
+
+/**
+ * 判断 PID 是否仍存活；EPERM、未知信号都按“可能存活”保守处理。
+ * @param {number} pid 进程号
+ * @returns {boolean}
+ */
+function isProcessAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return error?.code !== 'ESRCH'
+  }
+}
+
+/**
+ * 回收超龄且所属进程已不存在的管线缓存目录。只删除当前用户拥有的目录；
+ * 仍在运行的进程（含当前进程）与 24 小时内的目录都保留。
+ * @param {{
+ *   baseDirectory?: string,
+ *   now?: number,
+ *   isAlive?: (pid: number) => boolean,
+ * }} [options]
+ * @returns {Promise<{ removed: number, errors: unknown[] }>}
+ */
+export async function pruneStalePipelineDirectories(options = {}) {
+  const baseDirectory = options.baseDirectory ?? tmpdir()
+  const now = options.now ?? Date.now()
+  const isAlive = options.isAlive ?? isProcessAlive
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined
+  const errors = []
+  let removed = 0
+  let entries
+  try {
+    entries = await readdir(baseDirectory, { withFileTypes: true })
+  } catch (error) {
+    return { removed, errors: [error] }
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const path = join(baseDirectory, entry.name)
+    if (entry.name === LEGACY_CACHE_DIRECTORY) {
+      const legacy = await pruneLegacyDirectory(path, { now, uid, isAlive }).catch((error) => ({ removed: 0, errors: [error] }))
+      removed += legacy.removed
+      errors.push(...legacy.errors)
+      continue
+    }
+    if (!entry.name.startsWith(CACHE_DIRECTORY_PREFIX)) continue
+    const pid = pidFromName(entry.name.slice(CACHE_DIRECTORY_PREFIX.length))
+    try {
+      if (await removeIfStale(path, { now, uid, isAlive, pid })) removed += 1
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  return { removed, errors }
+}
+
+/**
+ * 旧版共享目录里是 `pid-<pid>` 子目录；只清子目录，不碰正在运行的进程。
+ * @param {string} directory 旧版共享目录
+ * @param {{ now: number, uid?: number, isAlive: (pid: number) => boolean }} options
+ */
+async function pruneLegacyDirectory(directory, options) {
+  const errors = []
+  let removed = 0
+  let entries
+  try {
+    entries = await readdir(directory, { withFileTypes: true })
+  } catch (error) {
+    return { removed, errors: [error] }
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const match = /^pid-(\d+)$/.exec(entry.name)
+    if (match === null) continue
+    const path = join(directory, entry.name)
+    try {
+      if (await removeIfStale(path, { ...options, pid: Number(match[1]) })) removed += 1
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  try {
+    const remaining = await readdir(directory)
+    if (remaining.length === 0) await rm(directory, { recursive: true, force: true })
+  } catch (error) {
+    errors.push(error)
+  }
+  return { removed, errors }
+}
+
+/**
+ * 删除一个超龄且进程不存在的目录；权限或属主不符时保留。
+ * @param {string} path 目录路径
+ * @param {{ now: number, uid?: number, isAlive: (pid: number) => boolean, pid?: number }} options
+ * @returns {Promise<boolean>} 是否删除
+ */
+async function removeIfStale(path, options) {
+  if (options.pid !== undefined && (options.pid === process.pid || options.isAlive(options.pid))) return false
+  const info = await stat(path)
+  if (options.now - info.mtimeMs < STALE_DIRECTORY_MS) return false
+  if (options.uid !== undefined && info.uid !== options.uid) return false
+  await rm(path, { recursive: true, force: true })
+  return true
+}
+
+/**
+ * 从私有目录名剩余部分（`<pid>-<随机后缀>`）取出 PID。
+ * @param {string} name 去掉前缀后的目录名
+ * @returns {number | undefined}
+ */
+function pidFromName(name) {
+  const match = /^(\d+)-/.exec(name)
+  return match === null ? undefined : Number(match[1])
 }
 
 /**

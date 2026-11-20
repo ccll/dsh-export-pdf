@@ -2,7 +2,7 @@
 doc-type: solution
 mutation: living
 owner: agent 主笔，项目属主审批
-核对日期: 2026-11-17
+核对日期: 2026-11-20
 ---
 
 # SOLUTION — 会话导出为 PDF
@@ -29,9 +29,9 @@ owner: agent 主笔，项目属主审批
 | 边界与对外契约 | 适用：路由的路径、参数、状态码与响应头是浏览器半区的唯一依赖。 | SOLUTION.md#产品契约 |
 | 核心数据与不变量 | 适用：转录条目的顺序与排除规则决定导出内容是否正确。 | SOLUTION.md#核心数据与不变量 |
 | 状态与生命周期 | 适用：缓存命中、过期与失败决定预览与下载是否一致。 | SOLUTION.md#导出状态与生命周期 |
-| 运行时、并发与失败语义 | 适用：同一会话并发请求要合并，渲染超时与浏览器缺失要可区分。 | SOLUTION.md#运行时与失败语义 |
+| 运行时、并发与失败语义 | 适用：同一会话并发请求要合并，导出超时、渲染超时与浏览器缺失要可区分。 | SOLUTION.md#运行时与失败语义 |
 | 外部集成 | 适用：会话查询服务、宿主文件服务与本机浏览器可执行文件是三个外部依赖。 | SOLUTION.md#外部集成 |
-| 配置与可变点 | 适用：浏览器路径与超时是仅有的两个可变点。 | SOLUTION.md#配置与可变点 |
+| 配置与可变点 | 适用：浏览器路径、渲染时限、导出总时限与并发上限是可变点。 | SOLUTION.md#配置与可变点 |
 | 安全与信任边界 | 适用：下载接口承载会话内容，必须落在宿主的鉴权栅栏内。 | SOLUTION.md#安全与信任边界 |
 | 部署、迁移与恢复 | 不适用：插件无独立部署、无持久化数据、无迁移与恢复流程。 | — |
 | 兼容性与版本演进 | 适用：页签插槽与路由 API 属于宿主契约，版本边界要声明。 | SOLUTION.md#兼容性与版本演进 |
@@ -128,14 +128,22 @@ sequenceDiagram
       V->>U: 页内失败提示
     end
   end
-  R-->>V: 200 application/pdf
-  V->>U: 显示预览
+  R-->>V: 200 application/pdf（HEAD）
+  V->>R: GET 同地址（预览校验）
+  alt GET 成功
+    R-->>V: 200 application/pdf
+    V->>U: 显示预览
+  else GET 失败
+    R-->>V: 4xx/5xx
+    V->>U: 页内失败提示
+  end
   U->>V: 点击下载
   V->>R: GET 同一地址加 disposition=attachment
   R-->>U: 浏览器保存 PDF 文件
 ```
 
-预览与下载使用同一份导出结果，所以下载不会重新渲染；选择变化会切换缓存键，仍由同一套缓存与单飞机制承接。
+预览与下载使用同一份导出结果；缓存命中时下载不会重新渲染，日志增长或样式变化会使缓存失效并重新渲染。选择变化会切换缓存键，仍由同一套缓存与单飞机制承接。
+视图在 HEAD 200 后再发一次同源 GET 校验预览可交付，成功后挂载 iframe；GET 失败转页内错误并提供重试。该校验覆盖挂载前的可交付性；挂载后 iframe 自身的 GET 不再被观测，日志变化或缓存淘汰仍可能让查看器显示错误页。
 
 ## 数据视图
 
@@ -228,7 +236,7 @@ flowchart LR
 - 文件块只在 `attachments` 选中时产生 `[附件: 文件名]`；文件本体从不嵌入 PDF，纯文件消息未选文件附件时不进入条目列表。
 - 附件图片只读取消息附件引用经 `ctx.attachments.readImage` 校验的字节，不按外部 URL 抓取。
 - 本地图片经宿主文件服务 `ctx.fs` 解析路径并读取，读取权限与聊天界面显示本地图片一致（宿主沙箱只约束写入，两侧都用 `lstat` 拒绝最终符号链接）；只接受常见图片扩展名且字节嗅探为真图片，读取上限取 `ctx.attachments.imageLimits.maxImageBytes`。
-- 嵌入图片统一缩放到版心内：宽度不超过消息气泡，最高 220mm，不越出页面边界。
+- 嵌入图片统一缩放到版心内：宽度不超过消息气泡；Markdown 内联图最高 220mm，附件图片最高 120mm，均不越出页面边界。
 - 用户与助手正文先按 Markdown 渲染成受控 HTML：块级标题/列表/引用/围栏代码/表格/分隔线，行内加粗/斜体/删除线/行内代码/链接与图片；原始 HTML 只按文本转义，链接只允许 http、https、mailto。
 - Markdown 图片在嵌入模式下替换为内联 `<img>`；占位、不导出与读取失败时显示 `[图片: alt]`，http、https 地址始终不抓取。
 - 窄视口（≤720px）不渲染页内 PDF iframe；显示同源“打开完整 PDF”链接，在新标签页用系统查看器浏览全部页面。桌面视口保留页内原生 PDF 预览。两种入口共用同一缓存结果、文件名与选择。
@@ -247,14 +255,16 @@ flowchart LR
 
 ## 导出状态与生命周期
 
-- 导出结果按“会话标识 + `include` 选择 + 图片模式”缓存在宿主内存，条目记录日志长度。
+- 导出结果按“会话标识 + `include` 选择 + 图片模式”缓存在宿主内存，条目记录日志长度与字节数。
 - 日志长度变化即视为过期，下一次请求重新渲染；选择或图片模式变化会命中另一条缓存或重新渲染，不复用其它选择/模式的字节。
+- 缓存同时受条数（32）与字节预算（128 MiB）约束，任一上限触发都按最久未使用淘汰。
+- 图片读取失败导致内容降级的 PDF 不写入缓存，下一次请求重新读取；同键旧缓存被清除，避免降级结果长期滞留。
 - 同一会话同一选择与图片模式在同一时刻只允许一个渲染任务，其余请求等待该结果。
 - 宿主关闭即丢弃全部结果，不写盘、不恢复。
 
 ## 运行时与失败语义
 
-- 渲染超时取配置值，超时终止子进程并以 `500` 结束，缓存不留半成品。
+- 单次导出总时限取 `exportTimeoutMs`；读日志、图片解析或打印任一步超时，请求以 `500`（错误机器码 `render`）结束，单飞表清理，不缓存半成品。浏览器子进程另有 `timeoutMs` 的打印时限。
 - 浏览器可执行文件缺失时立即以 `503` 结束，不启动子进程。
 - 宿主缺少可用的中文字体时立即以 `503` 结束，并说明缺少中文字体。
 - 折叠结果为空（包括图片模式为 `none` 且只剩图片消息，或只选了 `tools` 但会话没有工具调用）时以 `204` 结束，不启动浏览器，也不写临时文件。
@@ -271,20 +281,22 @@ flowchart LR
 - 会话查询服务：经 `ctx.sessionQuery` 读取会话日志，会话不存在时抛 `SESSION_QUERY_SESSION_NOT_FOUND`。
 - 附件服务：经 `ctx.attachments.readImage(ref)` 读取并校验本会话消息引用的图片字节；只接受日志中的附件引用，不按外部 URL 抓取。
 - 宿主文件服务：经 `ctx.fs` 的 `lstat`、`resolve`、`readBytes` 读取消息正文引用的本地图片；服务缺失时本地图片退回占位，不阻止导出。
-- 本机浏览器：按配置路径或 PATH 探测名称列表，启动无头模式打印 HTML。
-- 本机字体：探测中文字体是否可用，缺失时拒绝导出而不是输出缺字 PDF。Linux 先执行 `fc-list :lang=zh`，没有 fontconfig 时扫描系统字体目录；探测结果缓存在宿主进程内。
+- 本机浏览器：配置路径优先；未配置时先探测平台标准安装位置（macOS 应用包、Windows `ProgramFiles`/`LocalAppData` 下的 Chrome、Edge、Chromium），再按 PATH 名称列表探测，启动无头模式打印 HTML。
+- 本机字体：探测中文字体是否可用，缺失时拒绝导出而不是输出缺字 PDF。先执行 `fc-list :lang=zh`；未命中、不可用或返回空列表时继续扫描系统字体目录，覆盖 Linux、macOS 与 Windows 的常见字体文件名；探测结果缓存在宿主进程内。
 - 宿主的连接服务：经 `ctx.connection.fetch.register` 注册精确路由，鉴权由该桥提供。
 
 ## 配置与可变点
 
 | 字段 | 缺省 | 含义 |
 |---|---|---|
-| `browserPath` | 空 | 浏览器可执行文件路径；空表示按 PATH 探测 |
+| `browserPath` | 空 | 浏览器可执行文件路径；空表示先探平台标准安装位置，再按 PATH 探测 |
 | `timeoutMs` | 30000 | 单次渲染的截止时间 |
+| `exportTimeoutMs` | 120000 或 `timeoutMs` 中较大者 | 单次导出（读日志、图片解析与打印）的总时限；显式值不得小于 `timeoutMs` |
 | `maxConcurrentRenders` | 2 | 同时运行的最大渲染数 |
 
+- 以上字段只经 profile patch 注入；插件不导出 DSH `Config` schema，Plugin Manager 不展示这些字段，`normalizeConfig` 在装载期负责校验；显式 `exportTimeoutMs` 不得小于 `timeoutMs`，未显式配置时取 120000 与 `timeoutMs` 的较大者。
 - 页面尺寸固定 A4，不提供配置，对应非目标 NG-4。
-- 探测顺序固定为 `google-chrome`、`google-chrome-stable`、`chromium`、`chromium-browser`、`microsoft-edge`。
+- 探测顺序固定为：配置路径 → 平台标准安装位置 → PATH 名称列表（`google-chrome`、`google-chrome-stable`、`chromium`、`chromium-browser`、`microsoft-edge`）。
 
 ## 安全与信任边界
 
@@ -300,7 +312,7 @@ flowchart LR
 - 宿主下限为 `0.2.0-rc.2`，即当前安装版本；`conversation.view` 插槽与 `connection.fetch` 路由在该版本已存在。
 - 插件注册的视图条目 id 固定为 `pdf`，不与其他视图冲突。
 - 路由路径不做版本号，破坏性变更走新路径并保留旧路径一个版本。
-- 热加载生成的临时模块写在系统临时目录，文件名带内容哈希，一小时前的旧版本会被回收；进程内保留已加载的各版本模块，规模随本进程存活期内的源码版本数增长。
+- 热加载生成的临时模块写在系统临时目录的 0700 私有目录（`mkdtemp`，目录名带 PID 与随机后缀），文件名带内容哈希；插件卸载时删除该私有目录，启动时回收超过 24 小时且所属进程已不存在的旧目录；进程内保留已加载的各版本模块，规模随本进程存活期内的源码版本数增长。
 
 ## 需求追溯索引
 
@@ -327,13 +339,13 @@ flowchart LR
 - 职责: 把一份会话按所选内容组成渲染成 PDF，并在会话页内提供预览与下载（承接 R-01-001～R-01-014）。
 - 关键内部结构:
   - 宿主半区注册一条精确路由，承担参数校验、渲染编排、缓存与响应。
-  - 浏览器半区注册一个 `conversation.view` 条目，承担预览、内容选择与下载交互；选择变化会取消旧请求并按新选择重取。
+  - 浏览器半区注册一个 `conversation.view` 条目，承担预览、内容选择与下载交互；选择变化会中止旧请求的客户端等待并按新选择重取，服务端任务由导出总时限收口。
   - 转录折叠与 HTML 渲染是纯函数；图片解析经过附件服务与宿主文件服务，负责把附件引用和本地路径转成内联字节并对失败回退占位。
   - 宿主装配把 `ctx.fs` 包成本地图片读取函数注入导出编排器；该服务缺失时只影响 Markdown 本地图片嵌入，导出照常进行。
   - 浏览器进程按需启动，一次渲染一个进程，结束即回收。
   - 渲染管线由 `pipeline.mjs` 按内容哈希加载，页面样式由 `page-style.mjs` 按内容读取；这两处改动在导出时生效，不需要重启宿主（C-009）。
   - 宿主装配、路由与配置在启动时固定，改动它们仍需重启宿主。
-- 代码位置: src/selection.mjs, src/images.mjs, src/html.mjs, src/markdown.mjs, src/host.mjs, src/route.mjs, src/exporter.mjs, src/naming.mjs, src/pipeline.mjs, src/page-style.mjs, src/page-style.css, src/view.mjs, src/view-state.mjs, src/client.mjs
+- 代码位置: src/selection.mjs, src/images.mjs, src/html.mjs, src/markdown.mjs, src/transcript.mjs, src/render.mjs, src/exporter.mjs, src/naming.mjs, src/host.mjs, src/route.mjs, src/config.mjs, src/errors.mjs, src/chrome.mjs, src/fonts.mjs, src/process.mjs, src/pipeline.mjs, src/page-style.mjs, src/page-style.css, src/view.mjs, src/view-state.mjs, src/client.mjs, scripts/build-client.mjs
 - 实现: 双端
 
 ## 横切约束
@@ -341,9 +353,9 @@ flowchart LR
 - 不引入运行时 npm 依赖，PDF 生成只借助本机浏览器可执行文件。
 - 源码是不需编译的纯 ESM；浏览器半区由 `scripts/build-client.mjs` 拼装成宿主模块系统要求的 `window.__ModuleLoader__.load(...)` 工厂脚本。
 - 宿主半区的渲染管线在首次导出时按源码内容即时生成自包含模块（临时目录、内容哈希作版本），运行期不需要构建步骤；浏览器半区仍走构建脚本。
-- 视图条目使用固定标签 `PDF`，不注册其它插槽。
+- 视图条目使用固定标签 `PDF`，不注册其它插槽；视图文案为简体中文，不注册 Client locale 字典。
 - 所有失败转成页内提示，不向宿主抛出未处理异常。
-- 临时文件与子进程在成功、失败、取消三条路径上都回收。
+- 临时文件与子进程在成功、失败与超时三条路径上都回收；当前没有服务端取消路径，客户端 abort 只停止等待。导出总时限保证请求有界，已超时的渲染任务仍可能继续占用并发槽，直到 `timeoutMs` 终止子进程。
 
 ## 技术选型
 

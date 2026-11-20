@@ -1,4 +1,4 @@
-// 测试锚点: R-01-003/AC-01 R-01-006/AC-01 R-01-006/AC-02 R-01-007/AC-02 R-01-011/AC-02 R-01-011/AC-06 R-01-012/AC-01
+// 测试锚点: R-01-003/AC-01 R-01-006/AC-01 R-01-006/AC-02 R-01-011/AC-02 R-01-011/AC-06
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { SESSION_PDF_PATH, handlePdfRequest } from '../src/route.mjs'
@@ -89,7 +89,7 @@ test('空转录返回 204 无正文', async () => {
 })
 
 test('缺失或非法 sessionId 返回 400', async () => {
-  for (const query of ['', '?sessionId=', '?sessionId=%20%20', `?sessionId=${'a'.repeat(201)}`, '?sessionId=%00', '?sessionId=%E4%BC%9A%E8%AF%9D', '?sessionId=a%22b']) {
+  for (const query of ['', '?sessionId=', '?sessionId=%20%20', '?sessionId=%20session-1b9b2ef9', `?sessionId=${'a'.repeat(201)}`, '?sessionId=%00', '?sessionId=%E4%BC%9A%E8%AF%9D', '?sessionId=a%22b']) {
     const response = await handlePdfRequest(request(query), exporterReturning({ kind: 'pdf', bytes: PDF }))
     assert.equal(response.status, 400, `query=${query}`)
     assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8')
@@ -214,4 +214,12 @@ test('image 模式缺省占位、合法归一、文件名后缀与非法值 400'
     assert.match(await invalid.text(), /image/)
   }
   assert.deepEqual(seen, { include: [], imageMode: 'none' }, '非法 image 不得再次调用导出器')
+})
+
+test('导出结果形状非法时返回 500 render，而不是把异常抛给宿主', async () => {
+  for (const result of [null, { kind: 'pdf', bytes: 'not-bytes' }, { kind: 'pdf', bytes: new Uint8Array() }, { kind: 'unknown' }]) {
+    const response = await handlePdfRequest(request(`?sessionId=${SESSION_ID}`), { exportSession: async () => result })
+    assert.equal(response.status, 500)
+    assert.equal(response.headers.get('x-dsh-export-error'), 'render')
+  }
 })

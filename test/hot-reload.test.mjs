@@ -18,8 +18,8 @@ function userEvent(seq, text = `用户 ${seq}`) {
  * 与 `src/host.mjs` 相同的装配：管线换版就重建编排器，样式每次导出读取。
  * 这里用假的 renderPdf 收集 HTML，所以不依赖浏览器；真实 HTTP 装配由 e2e 覆盖。
  */
-function createAssembly({ directory, stylePath }) {
-  const loader = createPipelineLoader({ directory })
+function createAssembly({ directory, stylePath, cacheDirectory = join(directory, 'pipeline-cache') }) {
+  const loader = createPipelineLoader({ directory, cacheDirectory })
   const rendered = []
   let active = null
 
@@ -55,7 +55,7 @@ async function withAssembly(run) {
     }
     const stylePath = join(directory, 'page-style.css')
     await copyFile(join(SOURCE_DIRECTORY, 'page-style.css'), stylePath)
-    return await run({ directory, stylePath })
+    return await run({ directory, stylePath, cacheDirectory: join(directory, 'pipeline-cache') })
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

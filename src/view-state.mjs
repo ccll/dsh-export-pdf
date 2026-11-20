@@ -67,6 +67,19 @@ export function viewNoticeText(state) {
 }
 
 /**
+ * 视图状态是否属于当前会话与选择；初始空态没有会话字段，按当前作用域处理。
+ * @param {{ kind: string, sessionId?: string, selectionKey?: string }} state 视图状态
+ * @param {string} sessionId 当前会话标识
+ * @param {string} selectionKey 当前选择键
+ * @returns {boolean}
+ */
+export function isViewStateInScope(state, sessionId, selectionKey) {
+  if (state.sessionId === undefined) return true
+  if (state.sessionId !== sessionId) return false
+  return state.selectionKey === undefined || state.selectionKey === selectionKey
+}
+
+/**
  * 把导出路由的响应压成页内状态。200 为就绪，204 为空态，其它状态优先进
  * 正文；正文为空（HEAD 无正文）时用 `x-dsh-export-error` 机器码。
  * @param {number} status HTTP 状态码
@@ -98,6 +111,9 @@ export function messageForErrorCode(code) {
  * @returns {string}
  */
 export function messageForStatus(status, body, code) {
+  // 401/403 来自宿主的鉴权栅栏，正文可能只是 `unauthorized`；优先生成可操作的中文原因。
+  if (status === 401) return '登录状态已失效，请刷新页面后重试'
+  if (status === 403) return '没有访问该会话的权限'
   const text = String(body ?? '').trim()
   if (text !== '' && !text.startsWith('<')) return text
   const mapped = messageForErrorCode(code)

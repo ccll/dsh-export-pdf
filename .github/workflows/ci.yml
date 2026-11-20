@@ -50,8 +50,14 @@ jobs:
       - name: Verify browser and fonts
         run: google-chrome --version && test -n "$(fc-list :lang=zh | head -1)" && pdfinfo -v | head -1
 
-      - name: Build and contract check
-        run: pnpm build:client && pnpm check
+      - name: Contract check (committed bundle)
+        run: pnpm check
+
+      - name: Build client bundle
+        run: pnpm build:client
+
+      - name: Bundle drift check
+        run: git diff --exit-code -- .dsh-plugin/client.js
 
       - name: Unit and PDF integration tests
         run: pnpm test

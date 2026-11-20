@@ -5,7 +5,8 @@ import {
   TOOL_ARGUMENT_SUMMARY_MAX,
   foldTranscript,
   isHumanUserMessage,
-  messageText,
+  messageParts,
+  partsText,
   summarizeToolArguments,
 } from '../src/transcript.mjs'
 
@@ -78,14 +79,14 @@ test('助手消息没有 text 块时不产出条目，思考块不进入正文',
 })
 
 test('图片与文件块降为占位符，文本块按顺序拼接', () => {
-  const text = messageText([
+  const text = partsText(messageParts([
     { type: 'text', text: '看这个' },
     { type: 'image', attachment: { id: 'img' } },
     { type: 'file', attachment: { name: '报告.pdf' } },
     { type: 'tool-call', id: 'call', name: 'bash', arguments: '{}' },
-  ])
+  ]))
   assert.equal(text, '看这个\n[图片]\n[附件: 报告.pdf]')
-  assert.equal(messageText([{ type: 'file', attachment: {} }]), '[附件]')
+  assert.equal(partsText(messageParts([{ type: 'file', attachment: {} }])), '[附件]')
 })
 
 test('工具参数摘要保留可读键值并截断超长值', () => {

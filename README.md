@@ -11,8 +11,8 @@ A DeepSeek Harness (DSH) web plugin that adds a **PDF view page** to a session. 
 ## Requirements
 
 - A DSH 0.2.x installation with the `web` profile.
-- Google Chrome or Chromium on the host.
-- A CJK font visible to `fc-list :lang=zh` (for example Noto Sans CJK SC).
+- Google Chrome, Chromium, or Microsoft Edge on the host; the plugin probes standard install locations and `PATH`.
+- A CJK font visible to `fc-list :lang=zh` or present in a common system font directory (for example Noto Sans CJK SC).
 
 ## Install
 
@@ -31,23 +31,27 @@ The page starts with a clean transcript: user messages and assistant replies in 
 
 ## Configuration
 
-The plugin accepts three values. Override them in the profile patch layer, for example `$DSH_HOME/profiles/web/cordis.patch.yml`:
+The plugin accepts four values. Override them in the profile patch layer, for example `$DSH_HOME/profiles/web/cordis.patch.yml`:
 
 ```yaml
 - id: export-pdf
   config:
     browserPath: /usr/bin/chromium
     timeoutMs: 45000
+    exportTimeoutMs: 120000
     maxConcurrentRenders: 1
 ```
 
 | Key | Default | Meaning |
 |---|---|---|
-| `browserPath` | probe `PATH` | Explicit Chrome/Chromium executable; a configured path that is missing or not executable makes every export fail with `503` |
+| `browserPath` | standard install paths, then `PATH` | Explicit Chrome/Chromium executable; a configured path that is missing or not executable makes every export fail with `503` |
 | `timeoutMs` | `30000` | Per-render timeout, 1–600000 ms |
+| `exportTimeoutMs` | `120000` or `timeoutMs`, whichever is larger | Whole-export deadline covering log read, image resolution, and print, 1–600000 ms; when set explicitly it must be at least `timeoutMs` |
 | `maxConcurrentRenders` | `2` | Concurrent browser renders, 1–16; excess requests queue |
 
-Invalid values fail at plugin load instead of silently falling back.
+Invalid values, including an `exportTimeoutMs` shorter than `timeoutMs`, fail at plugin load instead of silently falling back.
+
+The plugin does not export a DSH `Config` schema, so these fields are patch-only: Plugin Manager cannot edit or schema-check them. UI labels are Simplified Chinese; the client half registers no locale dictionary.
 
 ## Behavior
 
@@ -57,8 +61,8 @@ Invalid values fail at plugin load instead of silently falling back.
 - **Download**: delivers the same bytes under the stable filename above.
 - **Faithful transcript**: user and assistant messages appear in log order with Markdown headings, lists, quotes, fenced code, tables, and inline emphasis rendered; raw HTML is escaped, links allow only http/https/mailto, and Markdown image syntax becomes a placeholder. Image placeholders follow the image mode, while the header checkboxes add file placeholders and one-line tool summaries; thinking blocks omitted.
 - **Readable Chinese output**: CJK glyphs embedded, A4 pages, Chrome's default header/footer disabled so no date, title, or temporary file path is printed.
-- **Visible failures**: a missing session, an unreadable log, a missing browser, a missing CJK font, a render failure, or a timeout produces an explicit message on the page and never a partial file. A failed render is not cached, so **Retry** starts a fresh attempt.
-- **Read-only**: exporting never writes to the session log and leaves no files behind.
+- **Visible failures**: a missing session, an unreadable log, a missing browser, a missing CJK font, a render failure, or a timeout produces an explicit message on the page and never a partial file. The whole-export deadline also covers a stuck log or image read. A failed render is not cached, so **Retry** starts a fresh attempt; image-read fallbacks are not cached either, so a retry can recover the original image.
+- **Read-only**: exporting never writes to the session log and leaves no session-content artifacts behind; the hot-reload pipeline cache lives in a private temporary directory and is removed on unload.
 - **Credentialed and same-origin only**: the route is registered through DSH's `/api` channel, so the host's browser authentication and Host/Origin fence apply before the plugin sees the request.
 - **Image modes**: the header image select offers placeholder (default), embed original, and no export. Embedding covers both uploaded images from this session's attachment library and local image files referenced with Markdown image syntax; local files are read through the host file service with the host process's read permission (the sandbox only constrains writes), final symlinks are refused, and only common image extensions with validated image bytes are accepted, and fall back to `[图片]` / `[图片: alt]` when unavailable. Remote http(s) image addresses are never fetched; other files are never embedded.
 - **Per-selection reuse**: concurrent requests for one session, content selection, and image mode share a single render; a cached result is reused until the log grows or the selection changes.
@@ -67,8 +71,8 @@ Invalid values fail at plugin load instead of silently falling back.
 
 ```sh
 pnpm install
-pnpm build:client
-pnpm check          # bundle parity, module wrapper, manifest, syntax
+pnpm check          # committed bundle parity, bundle/source syntax, manifest
+pnpm build:client   # regenerate the bundle after src changes
 pnpm test           # unit tests + real Chrome PDF integration
 pnpm test:e2e       # browser acceptance in an isolated DSH home
 pnpm lint:agentmap  # AgentMap structure, traceability, contract coverage
@@ -76,9 +80,9 @@ pnpm lint:agentmap  # AgentMap structure, traceability, contract coverage
 
 What takes effect when:
 
-- The render layer (the pure logic modules under `src/` and `src/page-style.css`) hot-reloads at export time; edit and reload the PDF view, no `dsh` restart.
+- The modules listed in `PIPELINE_MODULES` (`src/pipeline.mjs`) and `src/page-style.css` hot-reload at export time; edit and reload the PDF view, no `dsh` restart. `src/errors.mjs`, `src/process.mjs`, and the host wiring stay static.
 - Client bundle changes go through `pnpm build:client`; the client HMR receiver reloads the page automatically.
-- Host wiring and shell (`src/host.mjs`, `src/route.mjs`, `src/config.mjs`, `src/chrome.mjs`, `src/fonts.mjs`, `src/pipeline.mjs`, `src/page-style.mjs`, dependencies, and `cordis.patch.yml`) are fixed at boot and still need a restart.
+- Host wiring and shell (`src/host.mjs`, `src/route.mjs`, `src/config.mjs`, `src/chrome.mjs`, `src/fonts.mjs`, `src/errors.mjs`, `src/process.mjs`, `src/pipeline.mjs`, `src/page-style.mjs`, dependencies, and `cordis.patch.yml`) are fixed at boot and still need a restart.
 
 `pnpm test` skips the real-browser integration when Chrome or a CJK font is absent. `pnpm test:e2e` boots a temporary `$DSH_HOME` with a mock LLM, installs this checkout, starts `dsh web` on a random port, and drives system Chrome through `playwright-core`; it never touches a running GUI or the user's web profile. Set `CHROME_PATH` when Chrome is not at `/usr/bin/google-chrome`.
 
@@ -107,6 +111,8 @@ git config core.hooksPath .githooks
 | M-005 Role icons | person icon for users, robot icon for assistants | delivered by T-004 |
 | M-006 Export content selection | default minimal, opt-in tool summaries and file placeholders | delivered by T-005 |
 | M-007 Image export modes | placeholder, embed original, or omit images | delivered by T-007 |
+| M-008 Mobile PDF access | narrow viewport opens the full PDF in a new tab | delivered by T-009 |
+| M-009 Markdown rendering | headings, lists, quotes, fenced code, tables, inline emphasis | delivered by T-010 |
 
 ## License
 

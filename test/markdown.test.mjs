@@ -144,3 +144,24 @@ test('缩进列表续行与下划线强调不丢原文', () => {
   assert.equal(renderMarkdown('___粗斜___'), '<p><strong><em>粗斜</em></strong></p>')
   assert.equal(renderMarkdown('_斜体_'), '<p><em>斜体</em></p>')
 })
+
+test('40KB 未闭合的链接目标不会让扫描退化为二次方', () => {
+  const adversarial = '![a]('.repeat(8_000)
+  const started = performance.now()
+  assert.deepEqual(markdownImageSources(adversarial), [])
+  assert.ok(performance.now() - started < 500, '40KB 未闭合输入应在线性时间内扫描')
+})
+
+test('深层引用块不会因递归耗尽调用栈', () => {
+  const html = renderMarkdown(`${'>'.repeat(20_000)} 深层引用`)
+  assert.ok(html.includes('深层引用'))
+  assert.ok((html.match(/<blockquote/g) ?? []).length <= 40, '引用嵌套深度应受限')
+})
+
+test('列表与引用交替嵌套不会耗尽调用栈', () => {
+  for (const source of ['- '.repeat(4_000) + 'x', '- > '.repeat(4_000) + 'x', '> - '.repeat(4_000) + 'x']) {
+    const html = renderMarkdown(source)
+    assert.ok(html.includes('x'))
+    assert.ok((html.match(/<blockquote|<ul/g) ?? []).length <= 80, '块级嵌套深度应受限')
+  }
+})

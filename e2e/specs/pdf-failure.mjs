@@ -82,6 +82,39 @@ export default async function pdfFailure({ page, url, assert }) {
   assert.equal(await download.isDisabled(), true, '500 时下载不可用')
   await page.unroute('**/api/session.pdf*')
 
+  // R-01-006/AC-02：HEAD 成功但预览 GET 失败时，页面必须回到失败态而不是停在“预览已就绪”。
+  await page.route('**/api/session.pdf*', async (route) => {
+    if (route.request().method() === 'HEAD') {
+      await route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'application/pdf', 'content-length': '0' },
+        body: '',
+      })
+      return
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: 'text/plain; charset=utf-8',
+      body: '预览校验失败\n',
+      headers: { 'x-dsh-export-error': 'render' },
+    })
+  })
+  const headThenGetFailure = page.waitForResponse(
+    (response) => response.url().includes('/api/session.pdf') && response.request().method() === 'HEAD',
+    { timeout: 30_000 },
+  )
+  const previewGetFailure = page.waitForResponse(
+    (response) => response.url().includes('/api/session.pdf') && response.request().method() === 'GET' && response.status() === 500,
+    { timeout: 30_000 },
+  )
+  await retry.click()
+  assert.equal((await headThenGetFailure).status(), 200, 'HEAD 先返回 200')
+  assert.equal((await previewGetFailure).status(), 500, '预览校验 GET 返回 500')
+  await until('GET 失败后显示失败原因', async () => (await error.textContent()).includes('预览校验失败'), 30_000)
+  assert.equal(await page.locator('iframe[title="PDF 预览"]').count(), 0, 'GET 失败时不显示预览')
+  assert.equal(await download.isDisabled(), true, 'GET 失败时下载不可用')
+  await page.unroute('**/api/session.pdf*')
+
   // R-01-013/AC-03：失败状态下缩到窄视口，不得出现“打开完整 PDF”入口。
   await page.setViewportSize({ width: 390, height: 844 })
   await page.locator('.dxp-error').waitFor()

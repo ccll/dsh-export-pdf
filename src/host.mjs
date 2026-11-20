@@ -54,6 +54,22 @@ function readerError(code, message) {
 }
 
 /**
+ * 把错误与其 cause 链压成一段日志文本；只保留前四层，避免日志被递归原因撑爆。
+ * @param {unknown} error 任意抛出的值
+ * @returns {string}
+ */
+function errorDetail(error) {
+  const parts = []
+  let current = error
+  for (let depth = 0; depth < 4 && current !== undefined && current !== null; depth += 1) {
+    const detail = current?.detail ?? current?.message ?? String(current)
+    parts.push(String(detail))
+    current = current?.cause
+  }
+  return parts.join(' <- ')
+}
+
+/**
  * 注册 `/api/session.pdf` 路由。路由本身由 Connection 的 `/api` 桥完成
  * Host/Origin 与浏览器会话鉴权，插件只做参数校验、导出编排与响应构造。
  *
@@ -68,12 +84,13 @@ export function apply(ctx, rawConfig = {}) {
   const logger = ctx.logger('dsh-export-pdf')
 
   const logError = (message, error) => {
-    const detail = error?.detail ?? (error instanceof Error ? error.message : String(error))
-    logger.warn(`${message}: ${String(detail).slice(0, 1_000)}`)
+    logger.warn(`${message}: ${String(errorDetail(error)).slice(0, 1_000)}`)
   }
 
   /** 按源码内容热加载渲染管线；这里只创建一次，缓存与日志随实例走。 */
   const pipelineLoader = createPipelineLoader({ logError })
+  // 插件卸载时删除私有临时目录；目录清理失败只记日志，不阻断卸载。
+  ctx.effect(() => () => pipelineLoader.dispose(), 'dsh-export-pdf: pipeline cache')
   /** 本地图片读取器：宿主文件服务与附件图片上限在读取时取，便于热路径随宿主状态变化。 */
   const readLocalImage = createLocalImageReader({
     getFs: () => hostFileSystem(ctx),
@@ -95,6 +112,7 @@ export function apply(ctx, rawConfig = {}) {
       hasCjkFont: detectCjkFont,
       loadPageStyle: () => readPageStyle(),
       maxConcurrentRenders: config.maxConcurrentRenders,
+      exportTimeoutMs: config.exportTimeoutMs,
       logError,
     })
     active = { pipeline, exporter }
@@ -108,14 +126,14 @@ export function apply(ctx, rawConfig = {}) {
         methods: ['GET', 'HEAD'],
         requestBody: 'buffered',
         fetch: async (request) => {
-          let pipeline
+          const method = request.method.toUpperCase()
           try {
-            pipeline = await pipelineLoader.load()
+            const pipeline = await pipelineLoader.load()
+            return await handlePdfRequest(request, exporterFor(pipeline), { logError, helpers: pipeline })
           } catch (error) {
-            logError('渲染管线不可用', error)
-            return exportErrorResponse(error, request.method.toUpperCase())
+            logError('导出请求处理失败', error)
+            return exportErrorResponse(error, method)
           }
-          return handlePdfRequest(request, exporterFor(pipeline), { logError, helpers: pipeline })
         },
       }),
     'dsh-export-pdf: session.pdf route',

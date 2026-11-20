@@ -9,6 +9,10 @@ const OL_ITEM = /^ {0,3}(\d{1,9})[.)]\s+(.*)$/
 const QUOTE = /^ {0,3}>\s?(.*)$/
 const TABLE_SEPARATOR = /^ {0,3}\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/
 const SETEXT = /^ {0,3}(?:=+|-+)\s*$/
+/** 引用块递归上限；超过后按普通段落呈现剩余文本，避免恶意输入耗尽调用栈。 */
+const MAX_QUOTE_DEPTH = 32
+/** 块级递归总上限；列表与引用交替嵌套也不能无限下钻。 */
+const MAX_BLOCK_DEPTH = 32
 
 /**
  * 把消息文本渲染成受控 HTML。解析顺序先块级后行内；代码片段先占位，
@@ -91,7 +95,8 @@ function startsBlock(lines, index) {
   )
 }
 
-function renderBlocks(lines, context) {
+function renderBlocks(lines, context, depth = 0) {
+  if (depth > MAX_BLOCK_DEPTH) return `<p>${renderInline(lines.join('\n'), context)}</p>`
   const blocks = []
   let index = 0
   while (index < lines.length) {
@@ -138,7 +143,10 @@ function renderBlocks(lines, context) {
         quote.push(match[1])
         index += 1
       }
-      blocks.push(`<blockquote class="md-quote">${renderBlocks(quote, context)}</blockquote>`)
+      const quoteHtml = depth >= MAX_QUOTE_DEPTH
+        ? `<p>${renderInline(quote.join('\n'), context)}</p>`
+        : renderBlocks(quote, context, depth + 1)
+      blocks.push(`<blockquote class="md-quote">${quoteHtml}</blockquote>`)
       continue
     }
 
@@ -176,7 +184,7 @@ function renderBlocks(lines, context) {
           break
         }
       }
-      const list = items.map((item) => `<li>${renderListItem(item, context)}</li>`).join('')
+      const list = items.map((item) => `<li>${renderListItem(item, context, depth)}</li>`).join('')
       blocks.push(ordered && start !== 1 ? `<ol class="md-list" start="${start}">${list}</ol>` : `<${ordered ? 'ol' : 'ul'} class="md-list">${list}</${ordered ? 'ol' : 'ul'}>`)
       continue
     }
@@ -232,31 +240,48 @@ function safeHref(raw) {
   return escapeHtml(value)
 }
 
-function renderListItem(content, context) {
+function renderListItem(content, context, depth = 0) {
   const lines = String(content).split('\n')
   const task = lines[0].match(/^\[([ xX])\]\s+(.*)$/)
   if (task !== null) {
     const rest = lines.slice(1)
     const checked = task[1].toLowerCase() === 'x'
-    return `<span class="md-check">${checked ? '☑' : '☐'}</span> ${renderInline(task[2], context)}${rest.length === 0 ? '' : renderBlocks(rest, context)}`
+    return `<span class="md-check">${checked ? '☑' : '☐'}</span> ${renderInline(task[2], context)}${rest.length === 0 ? '' : renderBlocks(rest, context, depth + 1)}`
   }
   if (lines.length === 1 && !startsBlock(lines, 0)) return renderInline(lines[0], context)
-  return renderBlocks(lines, context)
+  return renderBlocks(lines, context, depth + 1)
 }
 
 function replaceLinks(source, convert) {
+  const length = source.length
+  // 预计算最近右方括号与括号配对，避免每个未闭合的 `[`/`![` 都向后扫到末尾。
+  const nextCloseBracket = new Int32Array(length + 1).fill(-1)
+  let nextBracket = -1
+  for (let cursor = length - 1; cursor >= 0; cursor -= 1) {
+    if (source[cursor] === ']') nextBracket = cursor
+    nextCloseBracket[cursor] = nextBracket
+  }
+  const matchingParen = new Int32Array(length + 1).fill(-1)
+  const openParens = []
+  for (let cursor = 0; cursor < length; cursor += 1) {
+    if (source[cursor] === '(') openParens.push(cursor)
+    else if (source[cursor] === ')') {
+      const open = openParens.pop()
+      if (open !== undefined) matchingParen[open] = cursor
+    }
+  }
+
   let output = ''
   let index = 0
-  while (index < source.length) {
+  while (index < length) {
     const image = source[index] === '!' && source[index + 1] === '['
     const labelStart = image ? index + 2 : source[index] === '[' ? index + 1 : -1
     if (labelStart < 0) {
       output += source[index++]
       continue
     }
-    let labelEnd = labelStart
-    while (labelEnd < source.length && source[labelEnd] !== ']') labelEnd += 1
-    if (labelEnd >= source.length) {
+    const labelEnd = nextCloseBracket[labelStart]
+    if (labelEnd < 0) {
       output += source.slice(index)
       break
     }
@@ -265,21 +290,15 @@ function replaceLinks(source, convert) {
       index = labelEnd + 1
       continue
     }
-    let depth = 1
-    let cursor = labelEnd + 2
-    while (cursor < source.length && depth > 0) {
-      if (source[cursor] === '(') depth += 1
-      else if (source[cursor] === ')') depth -= 1
-      cursor += 1
-    }
-    if (depth !== 0) {
+    const closing = matchingParen[labelEnd + 1]
+    if (closing < 0) {
       output += source[index++]
       continue
     }
-    const inside = source.slice(labelEnd + 2, cursor - 1).trim()
+    const inside = source.slice(labelEnd + 2, closing).trim()
     const href = markdownDestination(inside)
     output += convert(source.slice(labelStart, labelEnd), href, image)
-    index = cursor
+    index = closing + 1
   }
   return output
 }

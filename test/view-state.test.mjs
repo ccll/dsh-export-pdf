@@ -9,6 +9,7 @@ import {
   OPEN_PDF_TEXT,
   classifyExportResponse,
   initialViewState,
+  isViewStateInScope,
   messageForErrorCode,
   messageForStatus,
   pdfRouteUrl,
@@ -81,7 +82,7 @@ test('响应状态分类为就绪、空态与失败', () => {
 test('失败文案不把 HTML 错误页当正文显示', () => {
   assert.equal(messageForStatus(503, '<html>bad gateway</html>'), '导出服务当前不可用')
   assert.equal(messageForStatus(400, '  '), '导出请求参数无效')
-  assert.equal(messageForStatus(401, ''), '导出服务返回了意外结果（HTTP 401）')
+  assert.equal(messageForStatus(401, ''), '登录状态已失效，请刷新页面后重试')
 })
 test('窄视口断点与移动端打开文案固定，供视图与 e2e 共用', () => {
   assert.equal(NARROW_VIEWPORT_QUERY, '(max-width: 720px)')
@@ -89,4 +90,21 @@ test('窄视口断点与移动端打开文案固定，供视图与 e2e 共用', 
   assert.match(NARROW_PREVIEW_HINT, /窄视口/)
   assert.match(NARROW_PREVIEW_HINT, /全部页面/)
   assert.match(OPEN_PDF_TEXT, /完整 PDF/)
+})
+
+test('401/403 给出可操作原因，不直接回显宿主英文正文', () => {
+  assert.equal(messageForStatus(401, 'unauthorized'), '登录状态已失效，请刷新页面后重试')
+  assert.equal(messageForStatus(403, 'forbidden'), '没有访问该会话的权限')
+  assert.deepEqual(classifyExportResponse(401, '', null), {
+    kind: 'error',
+    message: '登录状态已失效，请刷新页面后重试',
+  })
+})
+
+test('视图状态按会话与选择作用域判定，旧会话状态不直接展示', () => {
+  assert.equal(isViewStateInScope({ kind: 'error', sessionId: 'a', selectionKey: 'k1' }, 'a', 'k1'), true)
+  assert.equal(isViewStateInScope({ kind: 'error', sessionId: 'a', selectionKey: 'k1' }, 'b', 'k1'), false)
+  assert.equal(isViewStateInScope({ kind: 'empty', sessionId: 'a', selectionKey: 'k1' }, 'a', 'k2'), false)
+  assert.equal(isViewStateInScope({ kind: 'empty', sessionId: 'a' }, 'a', 'k2'), true)
+  assert.equal(isViewStateInScope({ kind: 'empty' }, 'a', 'k2'), true)
 })

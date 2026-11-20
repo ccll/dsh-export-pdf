@@ -59,6 +59,7 @@ export async function resolveEmbeddedImages(entries, deps = {}) {
   const readImage = deps.readImage
   const logError = deps.logError ?? (() => {})
   const cache = new Map()
+  let degraded = false
 
   const read = async (ref) => {
     const id = ref?.attachmentId
@@ -78,7 +79,7 @@ export async function resolveEmbeddedImages(entries, deps = {}) {
     return promise
   }
 
-  return Promise.all(
+  const result = await Promise.all(
     entries.map(async (entry) => {
       if (!Array.isArray(entry.parts) || !entry.parts.some((part) => part?.type === 'image')) return entry
       const parts = []
@@ -90,6 +91,7 @@ export async function resolveEmbeddedImages(entries, deps = {}) {
         try {
           parts.push({ type: 'image', attachment: part.attachment, dataUrl: await read(part.attachment) })
         } catch (error) {
+          degraded = true
           logError('读取图片附件失败，回退占位', error)
           parts.push({ type: 'text', text: '[图片]' })
         }
@@ -97,6 +99,8 @@ export async function resolveEmbeddedImages(entries, deps = {}) {
       return { ...entry, parts, text: partsText(parts) }
     }),
   )
+  Object.defineProperty(result, 'degraded', { value: degraded })
+  return result
 }
 
 /**
@@ -168,10 +172,13 @@ export async function resolveMarkdownImages(entries, deps = {}) {
       pending.set(href, readLocalImageDataUrl(path, { readLocalImage, cwd, logError }))
     }
   }
+  let degraded = false
   for (const [href, promise] of pending) {
     const dataUrl = await promise
     if (dataUrl !== undefined) images.set(href, dataUrl)
+    else degraded = true
   }
+  Object.defineProperty(images, 'degraded', { value: degraded })
   return images
 }
 

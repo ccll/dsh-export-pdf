@@ -147,6 +147,19 @@ function viewNoticeText(state) {
 }
 
 /**
+ * 视图状态是否属于当前会话与选择；初始空态没有会话字段，按当前作用域处理。
+ * @param {{ kind: string, sessionId?: string, selectionKey?: string }} state 视图状态
+ * @param {string} sessionId 当前会话标识
+ * @param {string} selectionKey 当前选择键
+ * @returns {boolean}
+ */
+function isViewStateInScope(state, sessionId, selectionKey) {
+  if (state.sessionId === undefined) return true
+  if (state.sessionId !== sessionId) return false
+  return state.selectionKey === undefined || state.selectionKey === selectionKey
+}
+
+/**
  * 把导出路由的响应压成页内状态。200 为就绪，204 为空态，其它状态优先进
  * 正文；正文为空（HEAD 无正文）时用 `x-dsh-export-error` 机器码。
  * @param {number} status HTTP 状态码
@@ -178,6 +191,9 @@ function messageForErrorCode(code) {
  * @returns {string}
  */
 function messageForStatus(status, body, code) {
+  // 401/403 来自宿主的鉴权栅栏，正文可能只是 `unauthorized`；优先生成可操作的中文原因。
+  if (status === 401) return '登录状态已失效，请刷新页面后重试'
+  if (status === 403) return '没有访问该会话的权限'
   const text = String(body ?? '').trim()
   if (text !== '' && !text.startsWith('<')) return text
   const mapped = messageForErrorCode(code)
@@ -271,7 +287,7 @@ function PdfView(props) {
 
   React.useEffect(() => {
     if (blank === true) {
-      setState({ kind: 'empty' })
+      setState({ kind: 'empty', sessionId })
       setDownload({ kind: 'idle' })
       return undefined
     }
@@ -280,16 +296,39 @@ function PdfView(props) {
     setState({ kind: 'loading' })
     setDownload({ kind: 'idle' })
     const url = pdfRouteUrl(sessionId, { include, imageMode })
+    const scoped = (next) => ({ ...next, sessionId, selectionKey: viewSelectionKey })
     fetch(url, { method: 'HEAD', credentials: 'same-origin', signal: controller.signal })
       .then(async (response) => {
         const code = response.headers.get('x-dsh-export-error')
-        const classified = classifyExportResponse(response.status, response.ok ? '' : await response.text().catch(() => ''), code)
+        if (response.status !== 200) {
+          const body = response.status === 204 ? '' : await response.text().catch(() => '')
+          if (disposed || controller.signal.aborted) return
+          setState(scoped(classifyExportResponse(response.status, body, code)))
+          return
+        }
+        // HEAD 只证明路由可达；预览 iframe 用的是 GET，必须再验证一次 GET 成功，
+        // 否则日志增长、缓存淘汰或会话删除会让页面停留在“预览已就绪”。
+        const preview = await fetch(url, { credentials: 'same-origin', signal: controller.signal })
         if (disposed || controller.signal.aborted) return
-        setState(classified.kind === 'ready' ? { kind: 'ready', sessionId, url, filename: pdfFilename(sessionId, include, imageMode), selectionKey: viewSelectionKey } : classified)
+        if (preview.status !== 200) {
+          const body = preview.status === 204 ? '' : await preview.text().catch(() => '')
+          if (disposed || controller.signal.aborted) return
+          setState(scoped(classifyExportResponse(preview.status, body, preview.headers.get('x-dsh-export-error'))))
+          return
+        }
+        const contentType = preview.headers.get('content-type') ?? ''
+        // 校验只需要状态与响应头；不把整份 PDF 驻留浏览器内存，iframe 仍走同源路由。
+        preview.body?.cancel().catch(() => {})
+        if (!contentType.includes('application/pdf')) {
+          setState(scoped({ kind: 'error', message: `${FALLBACK_ERROR_TEXT}（HTTP ${preview.status}）` }))
+          return
+        }
+        if (disposed || controller.signal.aborted) return
+        setState({ kind: 'ready', sessionId, url, filename: pdfFilename(sessionId, include, imageMode), selectionKey: viewSelectionKey })
       })
       .catch(() => {
         if (disposed || controller.signal.aborted) return
-        setState({ kind: 'error', message: NETWORK_ERROR_TEXT })
+        setState(scoped({ kind: 'error', message: NETWORK_ERROR_TEXT }))
       })
     return () => {
       disposed = true
@@ -319,12 +358,12 @@ function PdfView(props) {
       })
       if (controller.signal.aborted) return
       if (response.status === 204) {
-        setDownload({ kind: 'error', message: FILTERED_EMPTY_TEXT })
+        setDownload({ kind: 'error', message: FILTERED_EMPTY_TEXT, sessionId, selectionKey: viewSelectionKey })
         return
       }
       if (!response.ok) {
         const text = await response.text().catch(() => '')
-        setDownload({ kind: 'error', message: messageForStatus(response.status, text) })
+        setDownload({ kind: 'error', message: messageForStatus(response.status, text), sessionId, selectionKey: viewSelectionKey })
         return
       }
       const blob = await response.blob()
@@ -333,23 +372,23 @@ function PdfView(props) {
       const anchor = document.createElement('a')
       anchor.href = objectUrl
       anchor.download = state.filename
-      document.body.appendChild(anchor)
       anchor.click()
-      anchor.remove()
       setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
       setDownload({ kind: 'idle' })
     } catch (error) {
       if (controller.signal.aborted || error?.name === 'AbortError') return
-      setDownload({ kind: 'error', message: NETWORK_ERROR_TEXT })
+      setDownload({ kind: 'error', message: NETWORK_ERROR_TEXT, sessionId, selectionKey: viewSelectionKey })
     } finally {
       if (downloadAbort.current === controller) downloadAbort.current = null
     }
   }, [state, sessionId, viewSelectionKey, imageMode])
 
   const ready = state.kind === 'ready' && state.sessionId === sessionId && state.selectionKey === viewSelectionKey
-  const statusText = state.kind === 'error' ? '导出失败' : state.kind === 'empty' ? '' : ready ? READY_TEXT : GENERATING_TEXT
-  const buttonText = !ready ? DOWNLOAD_TEXT : download.kind === 'loading' ? DOWNLOADING_TEXT : DOWNLOAD_TEXT
-  const displayState = ready || state.kind === 'empty' || state.kind === 'error' ? state : { kind: 'loading' }
+  const inScope = isViewStateInScope(state, sessionId, viewSelectionKey)
+  const displayState = ready || ((state.kind === 'empty' || state.kind === 'error') && inScope) ? state : { kind: 'loading' }
+  const displayDownload = download.kind === 'error' && !isViewStateInScope(download, sessionId, viewSelectionKey) ? { kind: 'idle' } : download
+  const statusText = displayState.kind === 'error' ? '导出失败' : displayState.kind === 'empty' ? '' : ready ? READY_TEXT : GENERATING_TEXT
+  const buttonText = !ready ? DOWNLOAD_TEXT : displayDownload.kind === 'loading' ? DOWNLOADING_TEXT : DOWNLOAD_TEXT
 
   const setOption = (key, checked) => {
     setSelection({ sessionId, options: { ...options, [key]: checked } })
@@ -397,13 +436,13 @@ function PdfView(props) {
         option('files', '文件附件'),
         option('tools', '工具调用摘要'),
       ),
-      React.createElement('button', { type: 'button', className: 'dxp-download', disabled: !ready || download.kind === 'loading', onClick: downloadPdf }, buttonText),
+      React.createElement('button', { type: 'button', className: 'dxp-download', disabled: !ready || displayDownload.kind === 'loading', onClick: downloadPdf }, buttonText),
     ),
     React.createElement(
       'div',
       { className: 'dxp-body' },
       renderBody(displayState, () => setAttempt((value) => value + 1), narrow),
-      download.kind === 'error' ? React.createElement('p', { className: 'dxp-download-error' }, download.message) : null,
+      displayDownload.kind === 'error' ? React.createElement('p', { className: 'dxp-download-error' }, displayDownload.message) : null,
     ),
   )
 }

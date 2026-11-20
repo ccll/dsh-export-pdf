@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { test } from 'node:test'
-import { renderPdfWithBrowser } from '../src/chrome.mjs'
+import { renderPdfWithBrowser, resolveBrowserPath } from '../src/chrome.mjs'
 import { RenderFailedError } from '../src/errors.mjs'
 
 const skipOnWindows = process.platform === 'win32' ? '依赖 POSIX shell 的假浏览器' : false
@@ -55,4 +55,40 @@ test('浏览器未产出文件时拒绝交付', { skip: skipOnWindows }, async (
   } finally {
     await rm(fake.directory, { recursive: true, force: true })
   }
+})
+
+test('macOS 标准安装路径无需配置 browserPath 即可被发现', async () => {
+  const expected = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+  const found = await resolveBrowserPath('', {
+    platform: 'darwin',
+    env: { PATH: '/usr/bin' },
+    isExecutable: async (candidate) => candidate === expected || candidate === '/usr/bin/google-chrome',
+  })
+  assert.equal(found, expected, '标准安装路径优先于 PATH')
+})
+
+test('Windows 标准安装路径无需配置 browserPath 即可被发现', async () => {
+  const expected = win32.join('C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe')
+  const found = await resolveBrowserPath('', {
+    platform: 'win32',
+    env: { PATH: '', ProgramFiles: 'C:\\Program Files' },
+    isExecutable: async (candidate) => candidate === expected,
+  })
+  assert.equal(found, expected)
+})
+
+test('Linux PATH 探测顺序保留，配置路径仍优先', async () => {
+  const found = await resolveBrowserPath('', {
+    platform: 'linux',
+    env: { PATH: '/opt/bin:/usr/bin' },
+    isExecutable: async (candidate) => candidate === '/usr/bin/chromium',
+  })
+  assert.equal(found, '/usr/bin/chromium')
+
+  const configured = await resolveBrowserPath('/opt/custom/chrome', {
+    platform: 'linux',
+    env: { PATH: '/usr/bin' },
+    isExecutable: async (candidate) => candidate === '/opt/custom/chrome' || candidate === '/usr/bin/chromium',
+  })
+  assert.equal(configured, '/opt/custom/chrome')
 })

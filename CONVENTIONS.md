@@ -11,9 +11,9 @@ owner: agent 主笔，项目属主审批
 - 开发期不得重启或停掉正在运行的 dsh 主实例；需要实测浏览器时，另起独立实例。
   - 主实例指东家正在使用的 `dsh web` / `dsh life` 进程；重启时机由东家决定。
   - 独立实例用隔离的 `DSH_HOME` 与随机端口（`dsh web --port 0`，e2e 运行器自带），验证后自行清理。
-- 改动生效方式：渲染层（`src/` 纯逻辑模块与 `src/page-style.css`）在导出时热加载，改完直接刷新 PDF 视图即可。
-  - 客户端 bundle 改动走 `pnpm build:client`，由客户端 HMR 自动重载。
-  - 宿主装配与外壳（`host.mjs`、`route.mjs`、`config.mjs`、`chrome.mjs`、`fonts.mjs`、`pipeline.mjs`、`page-style.mjs`、依赖或 `cordis.patch.yml`）仍需重启，重启时机由东家决定。
+- 改动生效方式：渲染管线（`src/pipeline.mjs` 的 `PIPELINE_MODULES` 与 `src/page-style.css`）在导出时热加载，改完直接刷新 PDF 视图即可。
+  - 只有 `PIPELINE_MODULES` 列出的模块参与热加载；`src/errors.mjs` 为了保持错误类型身份、`src/process.mjs` 被宿主静态导入，以及 `src/host.mjs`、`src/route.mjs`、`src/config.mjs`、`src/chrome.mjs`、`src/fonts.mjs`、`src/pipeline.mjs`、`src/page-style.mjs` 都不热加载，改后需重启宿主，重启时机由东家决定。
+  - 客户端 bundle 改动走 `pnpm build:client`，由客户端 HMR 自动重载；`src/selection.mjs`、`src/naming.mjs` 同时是客户端片段，改这两处要同时走热加载与 `build:client`。
 
 ## Git 提交规范
 
@@ -74,6 +74,8 @@ owner: agent 主笔，项目属主审批
 - `.d/` hook 统一使用 `NN-name.sh`，两位编号在同一目录内唯一；dispatcher 以 `LC_ALL=C` 按文件名顺序执行并在首个失败处停止。
 - `.githooks/pre-push`：先对 outgoing commits 重放 `.githooks/commit-msg`，再执行 `pre-push.d/`。
 - 权威验证入口: scripts/verify.sh
+- `scripts/check.mjs` 先于 `scripts/build-client.mjs` 运行，用于发现已提交 bundle 与源码漂移；构建后执行 `git diff --exit-code -- .dsh-plugin/client.js`，CI 同样拆分这两步。
+- `scripts/check.mjs` 对 `.dsh-plugin/client.js` 与全部 `src/*.mjs` 执行 `node --check`，bundle 大小按 UTF-8 字节报告。
 - pre-push 只重放 commit-msg 与 AgentMap lint；完整验证由 scripts/verify.sh 与 CI 承载。
 - CI 门禁: 适用：`.github/workflows/ci.yml` 配置 docs 与 verify 两个 job；verify 跑构建、契约检查、单测与 e2e（锁定 DSH 0.2.0-rc.2、系统 Chrome 与 Noto CJK）
 - `.githooks/pre-commit.d/20-agentmap-lint.sh`：AgentMap 结构、追溯与派生报告。

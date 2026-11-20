@@ -1,4 +1,5 @@
-// 快速检查入口：构建客户端 bundle 并校验产物契约、源码语法与包声明。
+// 快速检查入口：校验已提交客户端 bundle 与生成函数一致、产物语法、源码语法与包声明。
+// 不写盘；`pnpm build:client` 在检查通过后单独生成 bundle。
 // 单元与集成测试由 `node --test test/*.test.mjs` 承载（package.json 的 test）。
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -14,6 +15,7 @@ async function main() {
   const bundle = await readFile(bundlePath, 'utf8')
   const generated = await clientBundle()
   assert.equal(bundle, generated, '已提交 client bundle 与构建函数输出一致；运行 pnpm build:client 重建')
+  execFileSync(process.execPath, ['--check', bundlePath], { stdio: 'pipe' })
   assert.ok(bundle.includes('window.__ModuleLoader__.load({'), 'bundle 使用宿主模块加载器包装')
   assert.ok(bundle.includes('id: "dsh-export-pdf"'), 'bundle id 与包名一致')
   assert.ok(bundle.includes('const React = require("react");'), 'bundle 从平台模块表取 React')
@@ -36,7 +38,7 @@ async function main() {
   const patch = await readFile(join(repositoryRoot, 'cordis.patch.yml'), 'utf8')
   assert.ok(patch.includes('name: dsh-export-pdf'), 'patch 插入本包')
 
-  console.log(`check: ok（${sourceFiles.length} 个源文件、client bundle ${bundle.length} 字节）`)
+  console.log(`check: ok（${sourceFiles.length} 个源文件、client bundle ${Buffer.byteLength(bundle)} 字节）`)
 }
 
 main().catch((error) => {

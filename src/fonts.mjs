@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { runProcess } from './process.mjs'
 
 /** CJK 字体文件名特征：覆盖 Linux 常见发行版、macOS 与 Windows 的内置字体。 */
-const CJK_FONT_FILENAME = /(cjk|sourcehan|source-han|noto[-_ ]?(sans|serif)?[-_ ]?(sc|tc|jp|kr|hans|hant)|sarasa|fandol|yahei|pingfang|simsun|simhei|songti|heiti|kaiti|wenquanyi|droid[-_ ]?sans[-_ ]?fallback|arphic)/i
+const CJK_FONT_FILENAME = /(cjk|sourcehan|source-han|noto[-_ ]?(sans|serif)?[-_ ]?(sc|tc|jp|kr|hans|hant)|sarasa|fandol|msyh|msjh|mingliu|mingliub|yahei|pingfang|simsun|simhei|songti|heiti|kaiti|wenquanyi|wqy[-_ ]?(zenhei|microhei)|droid[-_ ]?sans[-_ ]?fallback|hiragino[-_ ]?sans[-_ ]?gb|arphic)/i
 const FONT_EXTENSION = /\.(ttf|otf|ttc|otc)$/i
 const FONT_SCAN_DEPTH = 3
 
@@ -21,11 +21,6 @@ export function detectCjkFont() {
   return cachedProbe
 }
 
-/** 测试用：清掉进程内字体探测缓存。 */
-export function resetCjkFontProbe() {
-  cachedProbe = undefined
-}
-
 /**
  * 判断文件名是否像一个 CJK 字体。
  * @param {string} filename 字体文件名
@@ -37,7 +32,9 @@ export function isCjkFontFilename(filename) {
 
 async function probeOnce() {
   const listed = await probeFontconfig()
-  if (listed !== undefined) return listed
+  if (listed === true) return true
+  // fontconfig 不可用、执行失败或返回空列表时都要继续扫描目录：
+  // macOS/Windows 的系统字体目录不一定被 fontconfig 收录，空结果不能当作权威否定。
   return scanFontDirectories()
 }
 
@@ -53,7 +50,11 @@ function fontDirectories() {
     return ['/System/Library/Fonts', '/Library/Fonts', join(homedir(), 'Library/Fonts')]
   }
   if (platform() === 'win32') {
-    return [join(process.env.SystemRoot ?? 'C:\\Windows', 'Fonts'), join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'Windows', 'Fonts')]
+    const directories = [join(process.env.SystemRoot ?? 'C:\\Windows', 'Fonts')]
+    if (typeof process.env.LOCALAPPDATA === 'string' && process.env.LOCALAPPDATA !== '') {
+      directories.push(join(process.env.LOCALAPPDATA, 'Microsoft', 'Windows', 'Fonts'))
+    }
+    return directories
   }
   return [
     '/usr/share/fonts',

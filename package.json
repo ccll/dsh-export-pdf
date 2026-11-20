@@ -37,7 +37,7 @@
     "check": "node scripts/check.mjs",
     "test": "node --test test/*.test.mjs",
     "test:e2e": "node e2e/run.mjs",
-    "verify": "pnpm build:client && pnpm check && pnpm test && pnpm test:e2e",
+    "verify": "pnpm check && pnpm build:client && git diff --exit-code -- .dsh-plugin/client.js && pnpm test && pnpm test:e2e && pnpm lint:agentmap",
     "lint:agentmap": "python3 tools/agentmap_lint.py --report",
     "lint": "pnpm lint:agentmap"
   },

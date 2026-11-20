@@ -67,20 +67,6 @@ export function partsText(parts) {
 }
 
 /**
- * 从消息内容块里取可读文本：默认图片与文件都降为占位；显式 imageMode 优先，
- * includeFiles 可独立关闭文件占位。
- * @param {readonly any[] | undefined} blocks 内容块
- * @param {{ includeAttachments?: boolean, includeFiles?: boolean, imageMode?: unknown }} [options]
- * @returns {string}
- */
-export function messageText(blocks, options = {}) {
-  const includeAttachments = options.includeAttachments ?? true
-  const imageMode = options.imageMode ?? (includeAttachments ? 'placeholder' : 'none')
-  const includeFiles = options.includeFiles ?? includeAttachments
-  return partsText(messageParts(blocks, { imageMode, includeFiles }))
-}
-
-/**
  * 把工具调用参数 JSON 压成单行摘要。解析失败时退化为空白折叠后的原文；
  * 超长值单独截断，总长受 {@link TOOL_ARGUMENT_SUMMARY_MAX} 约束。
  * @param {unknown} raw 模型产出的原始参数 JSON 字符串
