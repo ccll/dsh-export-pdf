@@ -15,18 +15,6 @@ owner: agent 主笔，项目属主审批
   - 只有 `PIPELINE_MODULES` 列出的模块参与热加载；`src/errors.mjs` 为了保持错误类型身份、`src/process.mjs` 被宿主静态导入，以及 `src/host.mjs`、`src/route.mjs`、`src/config.mjs`、`src/chrome.mjs`、`src/fonts.mjs`、`src/pipeline.mjs`、`src/page-style.mjs` 都不热加载，改后需重启宿主，重启时机由东家决定。
   - 客户端 bundle 改动走 `pnpm build:client`，由客户端 HMR 自动重载；`src/selection.mjs`、`src/naming.mjs` 同时是客户端片段，改这两处要同时走热加载与 `build:client`。
 
-## Git 提交规范
-
-- 标题使用 `emoji 中文类型(scope): 中文结果描述`；标题与正文之间须空一行（commit-msg 校验）。
-- emoji/type 固定配对：⭐ 功能、✨ 改进、🐛 修复、📝 文档、🧪 测试、📌 计划、🧹 维护、⚙️ 配置、♻️ 重构、🚀 发布。
-- `scope` 使用小写字母、数字和连字符，首字符须为字母或数字，不使用 subscope。
-- 普通提交正文必须包含 `## 原因`、`## 影响`、`## 取舍`；Merge、Revert、fixup 与 squash 使用 Git 生成标题。
-- 实现、修正或关闭 task 的提交：正文须引用对应 `T-nnn`。
-  - 目的：`git blame` → commit → task 可反查。
-  - 不涉及 task 的提交：不要求引用。
-  - 被引用的 task 必须真实存在，commit-msg 校验。
-- `.githooks/commit-msg` 校验当前提交，`.githooks/pre-push` 重检 outgoing commits；项目附加规则放入 `.githooks/commit-msg.d/NN-name.sh`。
-
 ## 主题索引
 
 - Git 提交规范: #git-提交规范
@@ -59,7 +47,7 @@ owner: agent 主笔，项目属主审批
 - 语义行排除路径: `*-lock.*`, `yarn.lock`, `*.min.js`, `*.min.css`, `dist/`, `build/`, `*.snap`, `*.pb.go`, `*_pb2.py`
 - 累计审计 task 间隔: 10
 - 累计审计行数间隔: 800
-- 累计审计复位点: T-016 <!-- 累计审计收口：窗口 f56bc5c..370ad34（5 笔）覆盖 T-013 收尾、T-015 Markdown 本地图片嵌入与读取口径对齐，语义行 953≥800 触发；复位于 T-016 收尾提交；每次累计审计收尾提交更新 -->
+- 累计审计复位点: T-021 <!-- 累计审计收口：窗口 fe212eb..1cac2f6（3 笔）覆盖 T-015 关闭、AgentMap 规范 11 升级与 T-017～T-020 审查整改，语义行 1196≥800 触发；复位于 T-021 收尾提交；每次累计审计收尾提交更新 -->
 - 关键路径: 无
 - 测试锚定模式: lite
 - 测试锚点路径: test/*.test.mjs; e2e/specs/*.mjs

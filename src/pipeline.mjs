@@ -133,11 +133,18 @@ export function createPipelineLoader(options = {}) {
       await mkdir(explicitCacheDirectory, { recursive: true, mode: 0o700 })
       return explicitCacheDirectory
     }
-    cacheDirectoryPromise ??= (async () => {
-      const pruned = await pruneStalePipelineDirectories().catch((error) => ({ removed: 0, errors: [error] }))
-      for (const error of pruned.errors) logError('渲染管线旧缓存目录清理失败', error)
-      return mkdtemp(join(tmpdir(), `${CACHE_DIRECTORY_PREFIX}${process.pid}-`))
-    })()
+    if (cacheDirectoryPromise === null) {
+      const created = (async () => {
+        const pruned = await pruneStalePipelineDirectories().catch((error) => ({ removed: 0, errors: [error] }))
+        for (const error of pruned.errors) logError('渲染管线旧缓存目录清理失败', error)
+        return mkdtemp(join(tmpdir(), `${CACHE_DIRECTORY_PREFIX}${process.pid}-`))
+      })()
+      // mkdtemp 的瞬态失败不能在进程生命周期内被缓存；下一次 load 仍应重试。
+      cacheDirectoryPromise = created.catch((error) => {
+        cacheDirectoryPromise = null
+        throw error
+      })
+    }
     return cacheDirectoryPromise
   }
 

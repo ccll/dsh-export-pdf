@@ -49,8 +49,8 @@ id: T-018
 - 字体: `test/fonts.test.mjs::常见中文字体文件名可被识别` 覆盖 Windows/macOS/Linux 常见文件名。
 - 浏览器: `test/chrome.test.mjs::macOS 标准安装路径无需配置 browserPath 即可被发现` 注入平台/环境/可执行判定，覆盖 macOS、Windows、Linux 与配置优先。
 - 时限: `test/exporter.test.mjs::导出超时返回渲染失败，后续请求可重新开始` 覆盖超时后单飞表可继续。
-- Markdown: `test/markdown.test.mjs::未闭合的链接目标不会让扫描退化为二次方` 覆盖 20KB 未闭合输入与 2 万层引用。
-- 缓存: `test/exporter.test.mjs::导出超时返回渲染失败，后续请求可重新开始` 覆盖字节预算淘汰与图片回退不缓存。
+- Markdown: `test/markdown.test.mjs::40KB 未闭合的链接目标不会让扫描退化为二次方`、`test/markdown.test.mjs::深层引用块不会因递归耗尽调用栈` 与 `test/markdown.test.mjs::列表与引用交替嵌套不会耗尽调用栈`。
+- 缓存: `test/exporter.test.mjs::缓存按字节上限淘汰最久未使用结果` 与 `test/exporter.test.mjs::图片读取失败降级的 PDF 不缓存，恢复后重新读取` 覆盖字节预算与降级不缓存。
 - 结果形状: `test/route.test.mjs::导出结果形状非法时返回 500 render` 覆盖非法导出结果返回 500 render。
 - 回归: 全量单测、两套 e2e、`scripts/check.mjs`、AgentMap lint。
 
@@ -58,17 +58,17 @@ id: T-018
 
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
-| 成功 | 适用：字体/浏览器探测与正常导出路径 | `test/fonts.test.mjs::常见中文字体文件名可被识别`、`test/chrome.test.mjs::macOS 标准安装路径无需配置 browserPath 即可被发现`、`test/exporter.test.mjs::导出超时返回渲染失败，后续请求可重新开始` |
-| 异常 | 适用：超时、图片读取失败、非法导出结果 | `test/exporter.test.mjs::导出超时返回渲染失败，后续请求可重新开始`、`test/route.test.mjs::导出结果形状非法时返回 500 render` |
+| 成功 | 适用：字体/浏览器探测与正常导出路径 | `test/fonts.test.mjs::常见中文字体文件名可被识别`、`test/chrome.test.mjs::macOS 标准安装路径无需配置 browserPath 即可被发现`、`test/exporter.test.mjs::渲染失败不缓存，下一次请求重试` |
+| 异常 | 适用：超时、图片读取失败、非法导出结果 | `test/exporter.test.mjs::导出超时返回渲染失败，后续请求可重新开始`、`test/exporter.test.mjs::读取会话卡住也受导出总时限约束`、`test/route.test.mjs::导出结果形状非法时返回 500 render` |
 | 边界配置 | 适用：字体文件名、平台标准路径、导出时限上下限 | `test/fonts.test.mjs::常见中文字体文件名可被识别`、`test/chrome.test.mjs::macOS 标准安装路径无需配置 browserPath 即可被发现`、`test/config.test.mjs::缺省配置与 SOLUTION 的配置表一致` |
-| 副作用 | 适用：缓存字节淘汰、降级结果不缓存、单飞清理 | `test/exporter.test.mjs::导出超时返回渲染失败，后续请求可重新开始` |
-| 性能 | 适用：Markdown 对抗输入不再二次方 | `test/markdown.test.mjs::未闭合的链接目标不会让扫描退化为二次方` 20KB 未闭合用例 |
+| 副作用 | 适用：缓存字节淘汰、降级结果不缓存、单飞清理 | `test/exporter.test.mjs::缓存按字节上限淘汰最久未使用结果`、`test/exporter.test.mjs::图片读取失败降级的 PDF 不缓存，恢复后重新读取`、`test/exporter.test.mjs::导出超时返回渲染失败，后续请求可重新开始` |
+| 性能 | 适用：Markdown 对抗输入不再二次方 | `test/markdown.test.mjs::40KB 未闭合的链接目标不会让扫描退化为二次方` |
 | 安全 | 适用：深层引用不耗尽调用栈 | `test/markdown.test.mjs::未闭合的链接目标不会让扫描退化为二次方` 2 万层引用用例 |
 | 兼容性 | 适用：原有 HTTP 契约、图片模式与 PDF 输出不变 | `test/route.test.mjs::导出结果形状非法时返回 500 render`、`test/pdf.test.mjs::真实浏览器打印：A4、多页、中文字形与转录内容正确`、两套 e2e |
 
 ## 自查清单
 
-- [ ] 边界：字体空结果继续扫描；标准安装路径优先于 PATH；导出时限 1–600000 校验。
+- [ ] 边界：字体空结果继续扫描；标准安装路径优先于 PATH；导出时限 1–600000 且显式值不小于 `timeoutMs`。
 - [ ] 异常：超时清理单飞表；降级结果不缓存；非法导出结果返回 500 render。
 - [ ] 回归：HTTP 契约、文件名、图片三模式、Markdown 既有用例与 e2e 不变。
 

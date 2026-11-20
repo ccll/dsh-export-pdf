@@ -1,7 +1,9 @@
-// 测试锚点: R-01-012/AC-07
+// 测试锚点: R-01-007/AC-02 R-01-012/AC-07
 // 宿主插件把路由注册到 Connection 的 /api fetch 注册表：鉴权与 Host/Origin
 // 栅栏由宿主该通道统一施加，插件只在该边界内做参数与导出编排。
 import assert from 'node:assert/strict'
+import { readdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import { apply, createLocalImageReader, inject, name } from '../src/host.mjs'
 import { SESSION_PDF_PATH } from '../src/route.mjs'
@@ -120,4 +122,15 @@ test('本地图片读取器把宿主超限与空文件错误原样交给调用�
     maxBytes: () => 1024,
   })
   await assert.rejects(readEmpty('/tmp/a.png'), { code: 'LOCAL_IMAGE_EMPTY' })
+})
+
+
+test('插件装载但未收到导出请求时不创建管线缓存目录', async () => {
+  const prefix = `dsh-export-pdf-${process.pid}-`
+  const before = new Set((await readdir(tmpdir())).filter((name) => name.startsWith(prefix)))
+  const { ctx, routes } = fakeContext()
+  apply(ctx, {})
+  assert.equal(routes.length, 1, '装载后只注册路由')
+  const after = new Set((await readdir(tmpdir())).filter((name) => name.startsWith(prefix)))
+  assert.deepEqual(after, before, '未收到导出请求时不应产生导出缓存目录')
 })

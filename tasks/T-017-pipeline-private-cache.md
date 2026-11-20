@@ -36,7 +36,7 @@ id: T-017
    - 生成文件先写同目录临时文件，再 `rename`；文件名仍带内容哈希。
 2. 生命周期:
    - 暴露 `dispose()`，删除默认私有目录；宿主的 `ctx.effect` 注册 disposer。
-   - 启动时扫描 `tmpdir()` 下 `dsh-export-pdf-*` 与旧版 `dsh-export-pdf/pid-*`；只删除超过 24 小时且对应 PID 已不存在的目录，避免误删仍在运行的实例。
+   - 首次加载时扫描 `tmpdir()` 下 `dsh-export-pdf-*` 与旧版 `dsh-export-pdf/pid-*`；只删除超过 24 小时且对应 PID 已不存在的目录，避免误删仍在运行的实例。
 3. 门禁:
    - `check` 在 `build` 之前运行；CI 构建后加 `git diff --exit-code -- .dsh-plugin/client.js`。
    - `check.mjs` 对 `.dsh-plugin/client.js` 执行 `node --check`；大小输出改用 `Buffer.byteLength`。
@@ -47,18 +47,18 @@ id: T-017
 
 - 先加失败测试：默认加载器生成私有目录（0700）、`dispose` 删除目录、两个加载器目录不同、旧目录清理只删除超龄且 PID 不在的目录。
 - 门禁脚本按新顺序执行：`node scripts/check.mjs` 在 `node scripts/build-client.mjs` 之前通过；手工改 `src/view.mjs` 后未重建时 check 应失败（用副本验证，不改工作区）。
-- 回归：现有 `test/pipeline.test.mjs::默认管线缓存使用随机私有目录`、`test/hot-reload.test.mjs::管线模块清单与样式表随包发布`、`node scripts/check.mjs`、两套 e2e。
+- 回归：现有 `test/pipeline.test.mjs::默认管线缓存使用随机私有目录，dispose 删除目录`、`test/hot-reload.test.mjs::改渲染模块后下一次导出直接使用新代码`、`node scripts/check.mjs`、两套 e2e。
 
 ## 验证矩阵
 
 | 维度 | 适用性/理由 | 可执行证据 |
 |---|---|---|
-| 成功 | 适用：私有目录创建、模块加载与热更新仍可用 | `test/pipeline.test.mjs::默认管线缓存使用随机私有目录` 私有目录用例、`test/hot-reload.test.mjs::管线模块清单与样式表随包发布` |
-| 异常 | 适用：首次加载失败、目录清理失败、旧目录不可删除 | `test/pipeline.test.mjs::默认管线缓存使用随机私有目录` 失败回退用例、清理测试 |
-| 边界配置 | 适用：显式 `cacheDirectory`、超龄目录、PID 复用与跨平台 | `test/pipeline.test.mjs::默认管线缓存使用随机私有目录` 显式目录/清理用例 |
-| 副作用 | 适用：卸载清理、并发加载、旧目录回收 | `test/pipeline.test.mjs::默认管线缓存使用随机私有目录` 并发、`src/host.mjs::apply` disposer |
-| 安全 | 适用：目录 0700、不可预测路径、原子写入 | `test/pipeline.test.mjs::默认管线缓存使用随机私有目录` 权限/路径断言 |
-| 兼容性 | 适用：热更新、导出输出与 HTTP 契约不变 | `test/hot-reload.test.mjs::管线模块清单与样式表随包发布`、`test/route.test.mjs::GET 成功返回 PDF 与 inline 文件名` |
+| 成功 | 适用：私有目录创建、模块加载与热更新仍可用 | `test/pipeline.test.mjs::默认管线缓存使用随机私有目录，dispose 删除目录`、`test/hot-reload.test.mjs::改渲染模块后下一次导出直接使用新代码` |
+| 异常 | 适用：首次加载失败、目录清理失败、旧目录不可删除 | `test/pipeline.test.mjs::新版本加载失败时沿用上一版并记录日志`、`test/pipeline.test.mjs::源码读取失败时沿用上一版并记录日志` |
+| 边界配置 | 适用：显式 `cacheDirectory`、超龄目录、PID 复用与跨平台 | `test/pipeline.test.mjs::启动清理只删除超过 24 小时且进程已不存在的旧目录`、`test/pipeline.test.mjs::两个加载器的默认缓存目录互不共用` |
+| 副作用 | 适用：卸载清理、并发加载、旧目录回收 | `test/pipeline.test.mjs::生成文件落在缓存目录，并发加载复用同一模块`、`test/host.test.mjs::插件装载但未收到导出请求时不创建管线缓存目录` |
+| 安全 | 适用：目录 0700、不可预测路径、原子写入 | `test/pipeline.test.mjs::默认管线缓存使用随机私有目录，dispose 删除目录` |
+| 兼容性 | 适用：热更新、导出输出与 HTTP 契约不变 | `test/hot-reload.test.mjs::管线源码未变化时不重建编排器`、`test/route.test.mjs::GET 成功返回 PDF 与 inline 文件名` |
 
 ## 自查清单
 

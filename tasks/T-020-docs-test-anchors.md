@@ -26,7 +26,7 @@ id: T-020
 ## 差距评估
 
 - 文档: `CONVENTIONS.md` 的生效方式、`SOLUTION.md` 的模块代码位置与三处陈述、`README.md`/`README.zh-CN.md` 路线图与修复前状态不一致。
-- 测试: `test/route.test.mjs::缺失或非法 sessionId 返回 400` 标了 R-01-007/AC-02、R-01-012/AC-01；`test/host.test.mjs` 标了 R-01-008/AC-01，但断言不覆盖对应 AC。R-01-007/AC-02 改由 `test/pipeline.test.mjs::创建加载器本身不产生缓存目录，首次加载才创建` 断言。
+- 测试: `test/route.test.mjs::缺失或非法 sessionId 返回 400` 标了 R-01-007/AC-02、R-01-012/AC-01；`test/host.test.mjs` 标了 R-01-008/AC-01，但断言不覆盖对应 AC。R-01-007/AC-02 改由 `test/host.test.mjs::插件装载但未收到导出请求时不创建管线缓存目录` 与 `test/pipeline.test.mjs::创建加载器本身不产生缓存目录` 断言。
 - 代码: `src/route.mjs:45` 先 trim 再校验；`src/transcript.mjs:76-81` 的 `messageText` 只被测试调用；`src/fonts.mjs:24-27` 的 `resetCjkFontProbe` 无调用。
 - 影响面: CONVENTIONS、SOLUTION、README 双语、test/route、test/host、test/transcript、src/route、src/transcript、src/fonts。
 
@@ -39,7 +39,7 @@ id: T-020
 
 ## 测试计划
 
-- `node --test test/route.test.mjs`、`test/host.test.mjs`、`test/transcript.test.mjs::图片与文件块降为占位符，文本块按顺序拼接`、`test/fonts.test.mjs`、`test/pipeline.test.mjs::创建加载器本身不产生缓存目录`。
+- `node --test test/route.test.mjs`、`test/host.test.mjs::插件装载但未收到导出请求时不创建管线缓存目录`、`test/transcript.test.mjs::图片与文件块降为占位符，文本块按顺序拼接`、`test/fonts.test.mjs`、`test/pipeline.test.mjs::创建加载器本身不产生缓存目录`。
 - `tools/agentmap_lint.py::--report` 确认追溯矩阵无虚标、无 error。
 - 全量单测、两套 e2e、`scripts/check.mjs::main`。
 

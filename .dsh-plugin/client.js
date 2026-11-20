@@ -266,8 +266,8 @@ function useNarrowViewport() {
 
 /**
  * PDF 视图页。默认图片占位、文件与工具不加入；选择变化时取消旧请求并按新选择重取。
- * 会话为空时显示空态且不发请求；否则 HEAD 同源路由，成功后用浏览器原生
- * 查看器预览，下载复用同一份结果与同一组选择。
+ * 会话为空时显示空态且不发请求；否则 HEAD 同源路由，再用 GET 校验预览可交付，
+ * 成功后用浏览器原生查看器预览，下载复用同一份结果与同一组选择。
  * @param {any} props conversation.view 的组合 props（含 sessionId 与 useSession）
  */
 function PdfView(props) {

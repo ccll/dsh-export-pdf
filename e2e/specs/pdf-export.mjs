@@ -82,7 +82,7 @@ export default async function pdfExport({ page, url, home, assert: specAssert })
     30_000,
   )
 
-  // 观察生成中状态：视图挂载时同步显示，直到 HEAD 完成或失败。
+  // 观察生成中状态：视图挂载时同步显示，直到 HEAD 与预览 GET 校验完成或失败。
   await page.evaluate(() => {
     window.__dxpStatuses = []
     const collect = () => {
