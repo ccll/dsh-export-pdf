@@ -2,6 +2,10 @@
   "name": "dsh-export-pdf",
   "version": "0.1.0",
   "description": "DeepSeek Harness Web plugin: render a session transcript as an in-page PDF preview with one-click download",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ccll/dsh-export-pdf.git"
+  },
   "packageManager": "pnpm@11.5.0",
   "engines": {
     "node": ">=20"
