@@ -94,6 +94,12 @@ Git hooks live in `.githooks/` and are enabled per clone:
 git config core.hooksPath .githooks
 ```
 
+## Releases
+
+A published GitHub Release `vX.Y.Z` triggers `.github/workflows/npm-publish.yml`: it verifies the release is published, the tag matches `package.json`, runs lint/check/tests, and publishes with npm Trusted Publishing (`npm publish --provenance --access public`). No `NPM_TOKEN` is stored.
+
+npm can only bind a trusted publisher to an existing package. The first version is a one-time manual bootstrap: `npm login`, then `npm publish --access public` from this repository. In the package's npm settings, add a trusted publisher for GitHub owner `ccll`, repository `dsh-export-pdf`, workflow `npm-publish.yml`, with `npm publish` allowed. A new trusted-publisher configuration must complete a publish within 48 hours.
+
 ## Design documents
 
 - [PRD.md](PRD.md) — goals, non-goals, milestones, requirements, and acceptance criteria.

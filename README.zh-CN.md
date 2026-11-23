@@ -94,6 +94,12 @@ Git 钩子位于 `.githooks/`，需要在每个克隆中单独启用：
 git config core.hooksPath .githooks
 ```
 
+## 发布
+
+已发布的 GitHub Release `vX.Y.Z` 会触发表 `.github/workflows/npm-publish.yml`：校验 Release 已发布、tag 与 `package.json` 版本一致，运行 lint/check/单测，然后通过 npm Trusted Publishing 执行 `npm publish --provenance --access public`；仓库不保存 `NPM_TOKEN`。
+
+npm 只能给已存在的包绑定 Trusted Publisher，因此第一个版本需要一次人工 bootstrap：在本仓库执行 `npm login`，再执行 `npm publish --access public`。随后在 npm 包设置中为 GitHub 属主 `ccll`、仓库 `dsh-export-pdf`、workflow `npm-publish.yml` 添加 Trusted Publisher，并允许 `npm publish`。新建的 Trusted Publisher 配置必须在 48 小时内完成一次发布，否则过期。
+
 ## 设计文档
 
 - [PRD.md](PRD.md) —— 目标、非目标、里程碑、需求与验收点。
